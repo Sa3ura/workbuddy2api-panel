@@ -208,6 +208,19 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .comp-row { display: flex; align-items: center; gap: 9px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
 .comp-row:last-child { border-bottom: none; }
 
+/* 上游健康巡检（P3 只读漂移探针）：一行一账号，点行展开逐探针明细。
+   不复用 .comp-row：这里要「标识 / 最差状态 / 可点击展开」三件套，
+   而 comp-row 是「左标识 + 右操作」两段式，硬套会把点击语义搞混。 */
+.hlt-row { display: flex; align-items: center; gap: 9px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+.hlt-row:hover { background: var(--surface-2); }
+.hlt-row:last-of-type { border-bottom: none; }
+.hlt-detail { padding: 1px 0 9px 0; border-bottom: 1px solid var(--line-soft); }
+.hlt-detail[hidden] { display: none; }
+.hlt-probe { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 3px 12px; font-size: 12px; }
+.hlt-txt { color: var(--ink-2); word-break: break-word; }
+.hlt-drift { padding: 1px 0 2px 12px; font-size: 12px; color: var(--warn); }
+.hlt-sum .tag { font-variant-numeric: tabular-nums; }
+
 /* ── 账号表（签名元素：健康色条 + 积分量条）───────────────────────── */
 .tbl-wrap { overflow-x: auto; }
 .acc { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
@@ -700,6 +713,23 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
           <button class="xs" id="btnCompClaimAll">全部领取</button>
         </header>
         <div class="pad"><div id="compList"></div></div>
+      </div>
+
+      <!-- 上游健康巡检（P3）：展示最近一次**只读**漂移探针的结论。
+           黄 = 能通但形状变了（字段缺失 / 老任务码交集下降），红 = 拿不到或明确失败；
+           企业版访问个人成长端点的 403 判绿（预期行为，不做这个豁免会每天假告警）。
+           数据来自 data/upstream_health.json（定时巡检或 cmd/doctor 写入），
+           面板只读透传、**结论不参与任何选号 / 冷却 / 熔断决策**。
+           文件不存在时卡片照常显示，但内容退化为「尚未巡检 + 怎么触发」，
+           不做 issue #137 那种「入口藏在自己隐藏卡片里」的死锁。 -->
+      <div class="box" id="healthBox">
+        <header>
+          <h3>上游健康<span class="hint">只读漂移探针 · 不签到 / 不领取 / 不建会话 · 黄红即上游协议可能已变</span></h3>
+          <span class="grow"></span>
+          <span class="note" id="healthNote"></span>
+          <button class="xs" id="btnHealthFold" aria-expanded="true">收起</button>
+        </header>
+        <div class="pad" id="healthPad"><div id="healthList"></div></div>
       </div>
 
       <div class="box">

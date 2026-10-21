@@ -24,7 +24,7 @@
 |---|---|---|
 | P0 基线 | 可复现构建（便携 Go 1.22.5）、`Makefile` + `scripts/build.{ps1,sh}`、`.gitattributes`、`.gitignore` 文档解禁、gofmt 归一 | `a702c95` `2509654` `53a4e99` `05ee1a0` |
 | P1 知识资产 | 核证原文档不可得 → 改为重建；`docs/protocol/` 骨架 + 5 份 A 级档案 + 25 处注释锚点 + 密钥扫描闸 + 引用守卫 | `b86c391` `0162b0a` `4958d6b` `b12474d` `8c00423` `a3c1184` |
-| P3 漂移探针 | `internal/upstream/probe.go`（9 探针）+ `cmd/doctor` + 11 契约测试；接入面板 `GET /panel/api/upstream_health` + 每 6h 定时巡检 | `028b30f` `4dee69c` |
+| P3 漂移探针 | `internal/upstream/probe.go`（9 探针）+ `cmd/doctor` + 11 契约测试；面板 `GET /panel/api/upstream_health`、每 6h 定时巡检、账号池健康卡片 | `028b30f` `4dee69c` + 后续 |
 | 修 bug | `buddy.id` → `instance_id`；补偿「已领/待领」口径；`-out` 语义；日志频道漏判 | `6c80297` `98a98f0` `e09a90e` |
 
 ### 期间发现并修复的问题
@@ -67,7 +67,7 @@ go run ./cmd/doctor                    → 8 探针全绿（真实 cn 号实测�
 
 | 项 | 内容 | 成本 | 价值 |
 |---|---|---|---|
-| **P3-3c 面板健康卡片** | 账号池顶部一行「上游健康 绿X/黄X/红X · N 分钟前」+ 点开明细；纯前端（`index.html` + `app.js`），不动后端 | 0.5h | 让巡检结果不用 curl 就能看见 |
+
 | **P4 CI 加固** | `go vet` / `gofmt` / `staticcheck` / `govulncheck` + 4 个守卫脚本（fmt、docs-secrets、protocol-refs）挂进 `.github/workflows` | 1h | 让"能长期维护"变成自动的，而不是靠人记得跑 |
 | **P5 降档预案** | `data/presets/{normal,throttle,survival}.json` + `docs/RUNBOOK.md`（降档梯子、暂停选号用法、备份恢复）+ **真做一次恢复演练** | 1天 | 上游收紧时能 5 分钟内降档，而不是现场找参数 |
 | **P1 剩余档案** | `desktop-events.md`（L3 事件链，最脆）、`school-mp.md`（活动已结束）、`risk-control.md`（部分已并入 headers §6）、`global-trial.md`（**需 global 账号**）、`perf-baseline.md` | 各 0.5-1h | 边际价值递减，按需 |

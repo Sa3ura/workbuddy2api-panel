@@ -1551,15 +1551,187 @@ if ($('btnCompClaimAll')) $('btnCompClaimAll').onclick = async () => {
   }
 };
 
+/* ── 上游健康巡检（P3 只读漂移探针） ─────────────────────────────────
+   展示 data/upstream_health.json 的最近一次结论。下面的纯函数必须保持
+   「输入数据 → 输出字符串」且不碰 DOM：它们由 health_frontend_test.go 用
+   node harness 直接跑（Go 侧对 JS 完全失明，判据写反不会报错）。
+
+   三态语义（与 internal/upstream/probe.go 的判定口径一致）：
+     green  符合预期
+     yellow 能通但形状变了——上游改动的最早信号
+     red    拿不到或明确失败
+   未知状态一律按 yellow：宁可多提示一次，也不静默当作正常。 */
+
+function healthStatusLevel(s) {
+  if (s === 'green') return 'green';
+  if (s === 'red') return 'red';
+  return 'yellow';   // yellow / 空 / 未知值
+}
+
+// healthWorst 取一组探针（或账号）里的最差状态：red > yellow > green。
+function healthWorst(list) {
+  let worst = 'green';
+  (list || []).forEach(function (x) {
+    const lv = healthStatusLevel(x && x.status);
+    if (lv === 'red') worst = 'red';
+    else if (lv === 'yellow' && worst === 'green') worst = 'yellow';
+  });
+  return worst;
+}
+
+// healthLevelCls 状态 → 既有 .tag 染色体系（ok / warn / bad）。
+function healthLevelCls(lv) {
+  return lv === 'red' ? 'bad' : (lv === 'yellow' ? 'warn' : 'ok');
+}
+
+// healthSummaryText 汇总文本，如「绿 3 / 黄 1 / 红 0 · 4 个账号」。
+function healthSummaryText(rep) {
+  const s = (rep && rep.summary) || {};
+  const n = function (x) { return Number(x || 0); };
+  return '绿 ' + n(s.green) + ' / 黄 ' + n(s.yellow) + ' / 红 ' + n(s.red) +
+    ' · ' + n(s.accounts) + ' 个账号';
+}
+
+// healthNonGreen 单账号里非绿的探针（只有这些需要占用行内空间）。
+function healthNonGreen(acc) {
+  const probes = (acc && acc.probes) || [];
+  return probes.filter(function (p) { return healthStatusLevel(p && p.status) !== 'green'; });
+}
+
+// healthRowHtml 单账号行（纯函数）：最差状态 + 短 uid + 非绿探针标签。
+// uid 只取前 8 位展示（与 /status 的 uid8 口径一致），整串写进 data 属性供展开定位。
+function healthRowHtml(acc) {
+  const uid = String((acc && acc.uid) || '');
+  const lv = healthWorst((acc && acc.probes) || []);
+  const bad = healthNonGreen(acc);
+  const tags = bad.length
+    ? bad.map(function (p) {
+        return '<span class="tag ' + healthLevelCls(healthStatusLevel(p.status)) + '">' +
+          esc(p.name) + '</span>';
+      }).join('')
+    : '<span class="tag ok">全部正常</span>';
+  const meta = [];
+  if (acc && acc.realm) meta.push('<span class="tag mute">' + esc(acc.realm) + '</span>');
+  if (acc && acc.enterprise) meta.push('<span class="tag mute">企业版</span>');
+  return '<div class="hlt-row" data-hlt-uid="' + esc(uid) + '" title="点击展开逐探针明细">' +
+    '<span class="tag ' + healthLevelCls(lv) + '">' + esc(lv) + '</span>' +
+    '<span>' + esc(uid ? uid.slice(0, 8) : '?') + '</span>' +
+    meta.join('') +
+    '<span class="grow"></span>' + tags + '</div>';
+}
+
+// healthDetailHtml 单账号展开区（纯函数）：全部探针 + 耗时 + 详情 + 漂移项。
+// detail / drift 可能含上游原文（例如整页 WAF HTML 的错误体），必须 esc。
+function healthDetailHtml(acc) {
+  const probes = (acc && acc.probes) || [];
+  if (!probes.length) return '<div class="hlt-probe"><span class="hlt-txt">没有探针结果</span></div>';
+  return probes.map(function (p) {
+    const lv = healthStatusLevel(p && p.status);
+    const ms = Number((p && p.latency_ms) || 0);
+    let html = '<div class="hlt-probe">' +
+      '<span class="tag ' + healthLevelCls(lv) + '">' + esc(p.name) + '</span>' +
+      (ms ? '<span class="tag mute">' + ms + 'ms</span>' : '') +
+      (p && p.costy ? '<span class="tag warn">花积分</span>' : '') +
+      (p && p.detail ? '<span class="hlt-txt">' + esc(p.detail) + '</span>' : '') +
+      '</div>';
+    const drift = (p && p.drift) || [];
+    if (drift.length) {
+      html += '<div class="hlt-drift">漂移项：' + esc(drift.join(', ')) + '</div>';
+    }
+    return html;
+  }).join('');
+}
+
+let healthCache = null;
+let healthInFlight = null;
+
+// renderHealth 渲染健康卡片。
+// exists=false（还没跑过巡检）时**卡片照常显示**，内容退化为引导文案——
+// 不做「隐藏卡片」那种写法：把入口藏在自己隐藏的卡片里就是 issue #137 的死锁。
+function renderHealth(d) {
+  const box = $('healthBox');
+  if (!box) return;
+  const rep = (d && d.report) || null;
+  if (!(d && d.exists && rep)) {
+    if ($('healthNote')) $('healthNote').textContent = '';
+    if ($('healthList')) {
+      $('healthList').innerHTML = '<div class="empty">尚未巡检。定时巡检默认每 6 小时一次' +
+        '（配置 → 定时任务可调），也可在服务器上运行 go run ./cmd/doctor 立即生成报告。</div>';
+    }
+    return;
+  }
+  const accounts = rep.accounts || [];
+  if ($('healthList')) {
+    $('healthList').innerHTML = accounts.length
+      ? accounts.map(function (a) {
+          return healthRowHtml(a) +
+            '<div class="hlt-detail" hidden>' + healthDetailHtml(a) + '</div>';
+        }).join('')
+      : '<div class="empty">报告里没有账号</div>';
+  }
+  if ($('healthNote')) {
+    const worst = healthWorst(accounts);
+    $('healthNote').textContent = healthSummaryText(rep) + ' · ' + ago(d.updated_at) + '巡检' +
+      (worst === 'green' ? '' : '（最差：' + worst + '）');
+  }
+}
+
+// renderCachedHealth 从缓存重渲染（不发请求），让「N 分钟前」跟着轮询走。
+function renderCachedHealth() {
+  if (healthCache) renderHealth(healthCache);
+}
+
+async function loadHealth() {
+  if (healthInFlight) { await healthInFlight; return; }
+  healthInFlight = (async function () {
+    try {
+      const d = await api('upstream_health');
+      healthCache = d;
+      renderHealth(d);
+    } catch (e) {
+      const box = $('healthBox');
+      if (box) box.hidden = false;
+      if ($('healthList')) {
+        $('healthList').innerHTML = '<div class="empty">查询失败：' + esc(e.message) + '</div>';
+      }
+      if ($('healthNote')) $('healthNote').textContent = '';
+    }
+  })();
+  try {
+    await healthInFlight;
+  } finally {
+    healthInFlight = null;   // 必须 finally：否则一次异常就让此后所有刷新永久失效
+  }
+}
+
+// 点行展开/收起明细。明细是行的下一个兄弟节点——不用 querySelector 拼 uid 选择器，
+// 因为 uid 可能含特殊字符，拼选择器要额外转义且容易出错。
+if ($('healthList')) $('healthList').addEventListener('click', function (e) {
+  const row = e.target.closest('.hlt-row');
+  if (!row) return;
+  const det = row.nextElementSibling;
+  if (det && det.classList.contains('hlt-detail')) det.hidden = !det.hidden;
+});
+
+if ($('btnHealthFold')) $('btnHealthFold').onclick = function () {
+  const pad = $('healthPad'), btn = $('btnHealthFold');
+  if (!pad || !btn) return;
+  const folded = !pad.hidden;
+  pad.hidden = folded;
+  btn.textContent = folded ? '展开' : '收起';
+  btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
+};
+
 /* ── 轮询 ─────────────────────────────────────────────────────────── */
 function refreshVisible() {
-  if (view === 'accounts') { loadOverview(true); renderCachedCompensation(); }
+  if (view === 'accounts') { loadOverview(true); renderCachedCompensation(); renderCachedHealth(); }
   else if (view === 'logs') loadLogs();
   else if (view === 'taskscenter') reattachQueueView();
 }
 function start() {
   loadOverview(true);
   loadCompensation();                       // 补偿状态：首次进页面查一次（之后靠新鲜窗口）
+  loadHealth();                             // 上游健康巡检：同上（读的是本地报告文件，不打上游）
   if (refTimer) clearInterval(refTimer);
   refTimer = setInterval(refreshVisible, 5000);
   checkAuthGate();
