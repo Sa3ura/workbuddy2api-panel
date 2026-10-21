@@ -65,6 +65,7 @@ func main() {
 		outPath  = flag.String("out", "data/upstream_health.json", "健康报告落盘路径；none/off/- 表示不落盘")
 		withChat = flag.Bool("chat", false, "追加对话探针（**消耗积分**，默认不跑）")
 		withKeys = flag.Bool("keys", false, "只导出各 growth 端点的响应键位骨架（键名，无值；用于重建协议档案）")
+		withMods = flag.Bool("models", false, "导出模型目录实测字段（id/上下文/输出上限/档位/倍率；用于重建 model-catalog 档案）")
 		timeout  = flag.Duration("timeout", 90*time.Second, "整体超时")
 	)
 	flag.Parse()
@@ -118,6 +119,14 @@ func main() {
 		return
 	}
 
+	// -models：导出模型目录实测字段（重建 model-catalog / thinking-effort 档案用）
+	if *withMods {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(dumpModels(ctx, client, accounts))
+		return
+	}
+
 	rep := upstream.RunHealthReport(ctx, client, accounts, *withChat, appVersion)
 
 	if !reportDisabled(*outPath) {
@@ -137,6 +146,63 @@ func main() {
 
 // appVersion 与 server 版本解耦：探针报告的版本号用于对照「哪版网关依赖了这套协议」。
 const appVersion = "doctor-1"
+
+// modelDump 模型目录的取证条目（重建 model-catalog / thinking-effort 档案用）。
+//
+// 只含**模型自身属性**：不含 uid、不含任何账号数据。模型目录本身是公开信息，
+// 因此这份导出可以安全入库到 docs/protocol/ 作为 A 级证据。
+type modelDump struct {
+	Realm           string   `json:"realm"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name,omitempty"`
+	ContextWindow   int64    `json:"context_window,omitempty"`
+	MaxTokens       int64    `json:"max_tokens,omitempty"`
+	MaxAllowedSize  int64    `json:"max_allowed_size,omitempty"`
+	Efforts         []string `json:"efforts,omitempty"`
+	DefaultEffort   string   `json:"default_effort,omitempty"`
+	CanDisableThink bool     `json:"can_disable_thinking,omitempty"`
+	Credits         string   `json:"credits,omitempty"`
+	PromoCredits    string   `json:"promo_credits,omitempty"`
+	PromoLabel      string   `json:"promo_label,omitempty"`
+	SupportsTools   bool     `json:"supports_tool_call,omitempty"`
+	SupportsImages  bool     `json:"supports_images,omitempty"`
+	Vendor          string   `json:"vendor,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+}
+
+// dumpModels 拉取每个账号视角的模型目录并压成取证条目。
+// 失败只打印警告（目录拉取可能因账号/域不同而失败），不影响其它账号。
+func dumpModels(ctx context.Context, c *upstream.Client, accounts []*auth.Auth) []modelDump {
+	out := make([]modelDump, 0, 32)
+	for _, a := range accounts {
+		infos, err := c.FetchModels(a)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "警告：uid=%s 模型目录拉取失败：%v\n", logfmt.UID8(a.UID), err)
+			continue
+		}
+		for _, m := range infos {
+			out = append(out, modelDump{
+				Realm:           a.Realm(),
+				ID:              m.ID,
+				Name:            m.Name,
+				ContextWindow:   m.ContextWindow,
+				MaxTokens:       m.MaxTokens,
+				MaxAllowedSize:  m.MaxAllowedSize,
+				Efforts:         m.Efforts,
+				DefaultEffort:   m.DefaultEffort,
+				CanDisableThink: m.CanDisableThinking,
+				Credits:         m.Credits,
+				PromoCredits:    m.PromoCredits,
+				PromoLabel:      m.PromoLabel,
+				SupportsTools:   m.SupportsToolCall,
+				SupportsImages:  m.SupportsImages,
+				Vendor:          m.Vendor,
+				Tags:            m.Tags,
+			})
+		}
+	}
+	return out
+}
 
 // reportDisabled 判断 -out 是否要求不落盘。
 //
