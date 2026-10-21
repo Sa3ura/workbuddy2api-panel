@@ -72,13 +72,25 @@
 |---|---|---|
 | `TEMPLATE.md` | — | ✅ 模板 |
 | `UNVERIFIED.md` | B | ✅ 待验证事实清单（探针校准的靶子） |
+| `growth-report.md` | **A** | ✅ **已校准**（2026-10-22 doctor 实测：streak/tasks/buddy/lottery 键骨架 + 17 任务码 + 猫 instance_id 漂移已修） |
 | `headers.md` | — | ⬜ 待建（优先，风控第一道） |
 | `desktop-events.md` | — | ⬜ 待建 |
-| `growth-report.md` | — | ⬜ 待建 |
-| `model-catalog.md` | — | ⬜ 待建 |
+| `model-catalog.md` | — | ⬜ 待建（`doctor` 已给出 22 模型 / efforts=14 / default=22 的形态证据） |
 | `thinking-effort.md` | — | ⬜ 待建 |
 | `school-mp.md` | — | ⬜ 待建 |
 | `wire-expectations.md` | — | ⬜ 待建 |
 | `risk-control.md` | — | ⬜ 待建 |
 | `global-trial.md` | — | ⬜ 待建 |
 | `perf-baseline.md` | — | ⬜ 待建（优先级最低） |
+
+## 5. 取证工具：`doctor -keys`
+
+重建档案时最大的不确定性是「字段到底叫什么」。`cmd/doctor -keys` 对每个 growth 只读端点各发一次 GET，
+导出**键位骨架**（只有键名与类型，**不含任何值**，因此可以安全入库）：
+
+```powershell
+go run ./cmd/doctor -keys > data/key-skeleton.json
+```
+
+`buddy/info` 的 `instance_id` 漂移就是这样发现的。新增端点时把它加进
+`internal/upstream/probe.go` 的 `dumpGrowthKeysPaths` 即可。
