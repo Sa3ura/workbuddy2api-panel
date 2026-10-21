@@ -139,3 +139,29 @@ go run ./cmd/doctor                    → 8 探针全绿（真实 cn 号实测�
 - 不为批量分发 / 多租户 / 卡密售卖做任何优化（作者停更的第三条理由）
 - 不追上游（已删库，无同步关系）
 - 不做风控对抗性增强（验证码破解、指纹伪造升级、代理池集成）
+
+## 首次生产部署记录（2026-10-22）
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.13.2-panel+f15ee13`（tag `v1.13.2`） |
+| 环境 | 阿里云 ECS，docker compose，容器 `workbuddy2api`，端口经 1Panel 反代 |
+| 账号 | 3 个（cn），`green 3 / yellow 0 / red 0`，各 8 探针全绿 |
+| 探针基线 | models 22（efforts=14）、balance/streak/tasks(16–17 码)/compensation(500 已领)/buddy/search(5 条) |
+| 备份 | `/tmp/wb2api-backup-2026-10-22_0128.tar.gz`（84K） |
+| 数据核对 | config.json md5 与备份一致；auths/ 3 个凭证无写入；data/ 属主仍 10001 |
+
+**部署适配全部走 `.env`，服务端零文件改动**（这是 1.13.2 的主要目的）：
+
+```
+GIT_COMMIT=<hash>              # 版本串带 commit
+APK_MIRROR=mirrors.aliyun.com  # dl-cdn.alpinelinux.org 在国内拉不动
+BIND_ADDR=127.0.0.1            # 面板只走反代，不直接对外
+PUID=10001 / PGID=10001        # 必须与 auths/、data/ 属主一致
+```
+
+**两条踩坑记录**：
+1. `PUID=$(id -u)` 在 root shell 下会写成 `0`，容器随即以 root 跑并在数据目录造 root 属主文件，
+   之后切回 10001 会 permission denied。要么不写这两个键（默认 10001），要么显式写 10001。
+2. 体检用的 `golang:1.27`（Debian 版）镜像层在国内源常拉不动；改用 `golang:1.27-alpine` 等效
+   （同为 go1.27.3），且它本来就是构建用的镜像，不额外占空间。
