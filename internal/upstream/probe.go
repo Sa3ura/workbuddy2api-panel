@@ -410,7 +410,16 @@ func probeCompensation(ctx context.Context, c *Client, a *auth.Auth) probeOutcom
 	if !st.Active {
 		return greenf("无生效活动（正常）")
 	}
-	return greenf("有活动 credit=%d 截止=%s", st.CreditNum, st.EndTime)
+	// 必须区分「待领」与「已领」：只说"有活动 credit=500"会被读成"待领 500"，
+	// 而实际可能已领过（签到排程会自动领）。误报会让人白跑一趟。
+	switch {
+	case st.Pending():
+		return greenf("待领 %d 积分 · 截止 %s", st.CreditNum, st.EndTime)
+	case st.Claimed:
+		return greenf("已领取（活动额度 %d，截止 %s）", st.CreditNum, st.EndTime)
+	default:
+		return greenf("活动存在但无额度（credit_num=%d）", st.CreditNum)
+	}
 }
 
 // probeBuddy 猫档案：未领养（buddy=null/缺字段/空对象）由 BuddyInfo 归一为 nil，属合法状态。
