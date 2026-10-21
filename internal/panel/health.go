@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
@@ -93,6 +94,34 @@ func (p *Panel) logHealthReport(rep *upstream.HealthReport) {
 			log.Printf("WARN: [panel] %s", line)
 		}
 	}
+}
+
+// healthRunMu 串行化手动巡检：两个浏览器同时点「立即巡检」不该并发打上游
+// （每轮是 N 账号 × 9 探针，重复一轮纯属浪费，还会把时间线搅乱）。
+var healthRunMu sync.Mutex
+
+// healthCheck POST /panel/api/health_check —— 手动触发一轮巡检（同步返回结果）。
+//
+// 同步而非异步：账号数是个位数时一轮约 3-6 秒，返回即可渲染；
+// 异步还得让前端轮询 updated_at 有没有变，多一层状态机不值当。
+// 已有在跑时返回 409——前端显示「巡检中」，而不是排队再跑一遍。
+func (p *Panel) healthCheck(w http.ResponseWriter, r *http.Request) {
+	if p.cfg.Upstream == nil || p.cfg.Pool == nil {
+		writeErr(w, http.StatusNotImplemented, "upstream/pool not available")
+		return
+	}
+	if !healthRunMu.TryLock() {
+		writeErr(w, http.StatusConflict, "health check already running")
+		return
+	}
+	defer healthRunMu.Unlock()
+
+	rep := p.RunHealthCheckOnce()
+	if rep == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "no accounts"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "report": rep})
 }
 
 // upstreamHealth GET /panel/api/upstream_health —— 只读透传最近一次巡检报告。

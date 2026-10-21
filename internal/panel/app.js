@@ -1722,6 +1722,38 @@ if ($('btnHealthFold')) $('btnHealthFold').onclick = function () {
   btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
 };
 
+// 「立即巡检」：同步跑一轮（个位数账号约 3-6 秒），返回即渲染。
+// 巡检期间按钮禁用并显示「巡检中…」——否则用户会连点，把一个可避免的
+// 并发请求打到上游去（后端虽有 409 兜底，但让用户看到「点了没反应」更糟）。
+if ($('btnHealthRun')) $('btnHealthRun').onclick = async function () {
+  const btn = $('btnHealthRun');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '巡检中…';
+  try {
+    const d = await api('health_check', { method: 'POST' });
+    if (d && d.ok && d.report) {
+      healthCache = { exists: true, report: d.report, updated_at: new Date().toISOString() };
+      renderHealth(healthCache);
+      const s = d.report.summary || {};
+      const lv = healthWorst(d.report.accounts || []);
+      toast('巡检完成：绿 ' + Number(s.green || 0) + ' / 黄 ' + Number(s.yellow || 0) +
+        ' / 红 ' + Number(s.red || 0), lv === 'green' ? 'ok' : (lv === 'yellow' ? '' : 'err'));
+    } else {
+      toast(d && d.reason === 'no accounts' ? '池里没有账号可巡检' : '巡检未返回结果', 'err');
+    }
+  } catch (e) {
+    // 409 = 已有一轮在跑（另一个标签页或定时任务），不是错误，如实说清。
+    const msg = String(e.message || '');
+    toast(msg.indexOf('409') >= 0 || msg.indexOf('already running') >= 0
+      ? '已在巡检中，稍等再看结果' : '巡检失败：' + msg, 'err');
+    await loadHealth();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+};
+
 /* ── 轮询 ─────────────────────────────────────────────────────────── */
 function refreshVisible() {
   if (view === 'accounts') { loadOverview(true); renderCachedCompensation(); renderCachedHealth(); }

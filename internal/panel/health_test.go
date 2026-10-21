@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
 )
 
@@ -119,5 +120,49 @@ func TestRunHealthCheckOnce_NilSafe(t *testing.T) {
 	p := New(Config{Version: "test"})
 	if rep := p.RunHealthCheckOnce(); rep != nil {
 		t.Fatalf("nil 依赖时应返回 nil，got %+v", rep.Summary)
+	}
+}
+
+// healthCheck（POST /panel/api/health_check）三条边界：
+//  1. 依赖缺失 → 501（面板在无 pool/upstream 的裸测环境里也要能挂载）
+//  2. 池里没账号 → 200 + ok:false（不是错误：没有可巡检对象）
+//  3. 已有一轮在跑 → 409（不排队不重跑，前端据此提示「巡检中」）
+func TestHealthCheckEndpoint(t *testing.T) {
+	post := func(cfg Config) *httptest.ResponseRecorder {
+		p := New(cfg)
+		req := httptest.NewRequest("POST", "/panel/api/health_check", nil)
+		req.Header.Set("Authorization", "Bearer test-key")
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1) 没有 pool / upstream
+	if rec := post(Config{Version: "test", APIKey: "test-key"}); rec.Code != http.StatusNotImplemented {
+		t.Fatalf("依赖缺失应 501，got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 2) 空池：能跑但无可巡检对象 → 200 + ok:false
+	rec := post(Config{Version: "test", APIKey: "test-key", Pool: pool.New(""), Upstream: upstream.New()})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("空池应 200，got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		OK     bool   `json:"ok"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.OK || got.Reason != "no accounts" {
+		t.Fatalf("空池结果 =%+v，want ok=false reason=no accounts", got)
+	}
+
+	// 3) 已在巡检中 → 409（模拟另一轮占着锁）
+	healthRunMu.Lock()
+	rec = post(Config{Version: "test", APIKey: "test-key", Pool: pool.New(""), Upstream: upstream.New()})
+	healthRunMu.Unlock()
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("并发应 409，got %d body=%s", rec.Code, rec.Body.String())
 	}
 }

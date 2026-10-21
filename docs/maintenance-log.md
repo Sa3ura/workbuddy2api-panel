@@ -24,7 +24,7 @@
 |---|---|---|
 | P0 基线 | 可复现构建（便携 Go 1.22.5）、`Makefile` + `scripts/build.{ps1,sh}`、`.gitattributes`、`.gitignore` 文档解禁、gofmt 归一 | `a702c95` `2509654` `53a4e99` `05ee1a0` |
 | P1 知识资产 | 核证原文档不可得 → 改为重建；`docs/protocol/` 骨架 + 5 份 A 级档案 + 25 处注释锚点 + 密钥扫描闸 + 引用守卫 | `b86c391` `0162b0a` `4958d6b` `b12474d` `8c00423` `a3c1184` |
-| P3 漂移探针 | `internal/upstream/probe.go`（9 探针）+ `cmd/doctor` + 11 契约测试；面板 `GET /panel/api/upstream_health`、每 6h 定时巡检、账号池健康卡片 | `028b30f` `4dee69c` + 后续 |
+| P3 漂移探针 | `internal/upstream/probe.go`（9 探针）+ `cmd/doctor` + 11 契约测试；面板 `GET /panel/api/upstream_health` + `POST /panel/api/health_check`、每 6h 定时巡检、账号池健康卡片（含「立即巡检」按钮） | `028b30f` `4dee69c` + 后续 |
 | 修 bug | `buddy.id` → `instance_id`；补偿「已领/待领」口径；`-out` 语义；日志频道漏判 | `6c80297` `98a98f0` `e09a90e` |
 
 ### 期间发现并修复的问题
