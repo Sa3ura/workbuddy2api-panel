@@ -17,6 +17,7 @@ package upstream
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -336,10 +337,22 @@ func probeModels(ctx context.Context, c *Client, a *auth.Auth) probeOutcome {
 		}
 	}
 	missing, ratio := intersectionRatio(probeKnownModels, names)
-	if ratio < 1 {
-		return yellowf(missing, "模型目录 %d 个，但熟悉的老模型缺失（命中率 %.0f%%）", len(infos), ratio*100)
+	// 顺带记录「思考档位字段」的可见性：这是 UNVERIFIED #6 的判据入口——
+	// 只要 supported_efforts / default_effort 有返回，就说明档位体系没被拿掉。
+	withEfforts, withDefault := 0, 0
+	for _, m := range infos {
+		if len(m.Efforts) > 0 {
+			withEfforts++
+		}
+		if m.DefaultEffort != "" {
+			withDefault++
+		}
 	}
-	return greenf("%d 个模型", len(infos))
+	if ratio < 1 {
+		return yellowf(missing, "模型目录 %d 个，但熟悉的老模型缺失（命中率 %.0f%%）；档位字段 %d/%d",
+			len(infos), ratio*100, withEfforts, withDefault)
+	}
+	return greenf("%d 个模型；档位字段 efforts=%d default=%d", len(infos), withEfforts, withDefault)
 }
 
 // probeBalance 余额：读不到 = 红；读数全 0 但账号非新号 = 黄（可能是结构变化）。
@@ -383,7 +396,9 @@ func probeTasks(ctx context.Context, c *Client, a *auth.Auth) probeOutcome {
 	if ratio < 0.6 {
 		return yellowf(missing, "任务码 %d 个，老任务码命中率仅 %.0f%%", len(codes), ratio*100)
 	}
-	return greenf("%d 个任务码", len(codes))
+	// 命中率一并透出：它是「口径漂移」的量化指标，也是 UNVERIFIED #3 的观测入口。
+	// 命中率不下降就不必理会新增任务码（上游新增是正常演进）。
+	return greenf("%d 个任务码（老码命中 %.0f%%，对照 %d 个）", len(codes), ratio*100, len(probeKnownTasks))
 }
 
 // probeCompensation 补偿状态：active=false 是「当前无活动」的正常 200，不算异常。
@@ -398,7 +413,11 @@ func probeCompensation(ctx context.Context, c *Client, a *auth.Auth) probeOutcom
 	return greenf("有活动 credit=%d 截止=%s", st.CreditNum, st.EndTime)
 }
 
-// probeBuddy 猫档案：未领养（buddy=nil）是合法状态，不是漂移。
+// probeBuddy 猫档案：未领养（buddy=null/缺字段/空对象）由 BuddyInfo 归一为 nil，属合法状态。
+//
+// 但「返回了 buddy 对象、id 却是 0」是可疑形状：实测 2026-10-22 该账号连登 12 天、
+// 大概率已领养，却拿到 id=0。判黄并把 name 一并透出，用来区分三种可能：
+// 上游确实用 id=0 表示占位对象 / 字段名从 id 改成了别的 / 解析键位变了。
 func probeBuddy(ctx context.Context, c *Client, a *auth.Auth) probeOutcome {
 	buddy, err := c.BuddyInfo(a)
 	if out, done := applyProbeErr(a, err, true); done {
@@ -407,21 +426,27 @@ func probeBuddy(ctx context.Context, c *Client, a *auth.Auth) probeOutcome {
 	if buddy == nil {
 		return greenf("未领养")
 	}
+	if buddy.ID <= 0 {
+		return yellowf([]string{"buddy.id"},
+			"返回 buddy 对象但 id=%d（name=%q），疑似字段名变更", buddy.ID, truncateForProbe(buddy.Name))
+	}
 	return greenf("id=%d", buddy.ID)
 }
 
 // probeSearch 联网搜索：验证 /agenttool/v1/search 仍返回结果块。
-// 搜索本身不消耗账号积分（走 agenttool），仍按只读处理。
+// 按官方默认请求 5 条（README「联网搜索」节：上游固定 5 条），实测条数写进 detail
+// ——这是 UNVERIFIED #10 的判据。
 func probeSearch(ctx context.Context, c *Client, a *auth.Auth) probeOutcome {
+	const want = 5
 	query := "workbuddy"
-	out, err := c.Search(ctx, a, query, 1, ChatMeta{})
+	out, err := c.Search(ctx, a, query, want, ChatMeta{})
 	if err != nil {
 		return redf(err)
 	}
 	if out == nil || len(out.Results) == 0 {
 		return yellowf([]string{"results"}, "200 但无结果（结果块结构可能变了）")
 	}
-	return greenf("%d 条", len(out.Results))
+	return greenf("%d 条（请求 %d）", len(out.Results), want)
 }
 
 // probeChat 对话探针：**花积分**，默认不跑。
@@ -479,4 +504,81 @@ func stripHTMLTags(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// ---------- 键位骨架（P1 档案重建的证据工具） ----------
+
+// KeySkeleton 一个端点的响应**键位骨架**：只有键名与类型，不含任何值。
+//
+// 用途：原始逆向文档已不可得（docs/protocol/README.md §0），重建档案时最大的不确定性
+// 就是"字段到底叫什么"。本结构把真实响应的键结构导出来，既不泄露任何数据（无值），
+// 又足以判定代码里的 json tag 是否还对得上——`buddy/info` 的 id 漂移就是这样发现的。
+type KeySkeleton struct {
+	Path  string `json:"path"`
+	Keys  any    `json:"keys,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// dumpGrowthKeysPaths 探针用到的 growth 域只读端点（顺序即输出顺序）。
+var dumpGrowthKeysPaths = []string{
+	streakPath,
+	tasksListPath,
+	buddyInfoPath,
+	travelStatusPath,
+	lotterySummaryPath,
+}
+
+// DumpGrowthKeys 对各 growth 只读端点各发一次 GET，导出键位骨架。
+// 只发 GET、不改任何状态；失败不中断其余端点。
+func DumpGrowthKeys(ctx context.Context, c *Client, a *auth.Auth) []KeySkeleton {
+	out := make([]KeySkeleton, 0, len(dumpGrowthKeysPaths))
+	for _, p := range dumpGrowthKeysPaths {
+		sk := KeySkeleton{Path: p}
+		data, err := c.growthJSON(a, "GET", p, nil)
+		if err != nil {
+			sk.Error = truncateForProbe(err.Error())
+			out = append(out, sk)
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(data, &v); err != nil {
+			sk.Error = "parse: " + truncateForProbe(err.Error())
+			out = append(out, sk)
+			continue
+		}
+		sk.Keys = keyShape(v, 0)
+		out = append(out, sk)
+	}
+	return out
+}
+
+// keyShape 把任意 JSON 值压缩成「形状」描述：map → 键名集合，list → 元素形状，标量 → 类型名。
+// depth 限制 4 层，避免异常大的响应把输出撑爆。
+func keyShape(v any, depth int) any {
+	if depth > 4 {
+		return "…"
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, child := range t {
+			out[k] = keyShape(child, depth+1)
+		}
+		return out
+	case []any:
+		if len(t) == 0 {
+			return map[string]any{"_type": "array", "_len": 0}
+		}
+		return map[string]any{"_type": "array", "_len": len(t), "_item": keyShape(t[0], depth+1)}
+	case string:
+		return "string"
+	case float64:
+		return "number"
+	case bool:
+		return "bool"
+	case nil:
+		return "null"
+	default:
+		return "unknown"
+	}
 }

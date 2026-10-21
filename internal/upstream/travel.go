@@ -28,8 +28,19 @@ const (
 const buddyTaskIncompleteMarker = "first_buddy task not completed yet"
 
 // Buddy 账号当前猫档案；nil（data.buddy 为 null）表示无猫。
+//
+// 字段名来自实测（2026-10-22 `doctor -keys` 导出的真实键位骨架）：`/activity/growth/buddy/info`
+// 的 buddy 对象里**没有 `id`**，猫的唯一标识叫 `instance_id`：
+//
+//	{"buddy":{"instance_id":n,"name":s,"rarity":s,"personality":s,"soul_desc":s,
+//	          "base_static_url":s,"base_animated_url":s,"full_animated_url":s,
+//	          "thumbnail_url":s,"appearance":{hat,eye,effect,body_accessory}},
+//	 "poll_interval_seconds":n}
+//
+// 此前误写成 `json:"id"`，导致 ID 恒为 0——功能上无影响（travel 流程只判 nil / 非 nil），
+// 但任何"按猫 ID 做判据"的逻辑都会静默失效。证据见 docs/protocol/growth-report.md。
 type Buddy struct {
-	ID   int64  `json:"id"`
+	ID   int64  `json:"instance_id"`
 	Name string `json:"name"`
 }
 

@@ -130,7 +130,8 @@ func TestBuddyInfoNullMeansNoBuddy(t *testing.T) {
 
 func TestBuddyInfoPresent(t *testing.T) {
 	c := testClient(func(r *http.Request) (*http.Response, error) {
-		return jsonResp(200, `{"code":0,"data":{"buddy":{"id":7,"name":"档案喵 R"}}}`), nil
+		// 真实形状（2026-10-22 `doctor -keys` 实测）：猫标识叫 instance_id，没有 id 键。
+		return jsonResp(200, `{"code":0,"data":{"buddy":{"instance_id":7,"name":"档案喵 R"}}}`), nil
 	})
 	b, err := c.BuddyInfo(&auth.Auth{AccessToken: "at", UID: "u1"})
 	if err != nil || b == nil {
@@ -138,6 +139,21 @@ func TestBuddyInfoPresent(t *testing.T) {
 	}
 	if b.Name != "档案喵 R" || b.ID != 7 {
 		t.Errorf("buddy=%+v", b)
+	}
+}
+
+// 猫对象缺 instance_id（上游若改名）时 ID 归零——显式记录该行为，
+// 避免下游按猫 ID 做判据时静默失效（本次修复前的实况）。
+func TestBuddyInfoMissingInstanceID(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		return jsonResp(200, `{"code":0,"data":{"buddy":{"name":"无名喵"}}}`), nil
+	})
+	b, err := c.BuddyInfo(&auth.Auth{AccessToken: "at", UID: "u1"})
+	if err != nil || b == nil {
+		t.Fatalf("buddy=%+v err=%v", b, err)
+	}
+	if b.ID != 0 {
+		t.Errorf("缺 instance_id 时 ID 应为 0，got %d", b.ID)
 	}
 }
 

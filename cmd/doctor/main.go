@@ -65,6 +65,7 @@ func main() {
 		asJSON   = flag.Bool("json", false, "输出 JSON（默认人类可读表）")
 		outPath  = flag.String("out", "data/upstream_health.json", "健康报告落盘路径（空 = 不落盘）")
 		withChat = flag.Bool("chat", false, "追加对话探针（**消耗积分**，默认不跑）")
+		withKeys = flag.Bool("keys", false, "只导出各 growth 端点的响应键位骨架（键名，无值；用于重建协议档案）")
 		timeout  = flag.Duration("timeout", 90*time.Second, "整体超时")
 	)
 	flag.Parse()
@@ -105,6 +106,18 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+
+	// -keys：只导出键位骨架，不跑探针（用于 P1 重建协议档案时核对字段名）
+	if *withKeys {
+		var all []upstream.KeySkeleton
+		for _, a := range accounts {
+			all = append(all, upstream.DumpGrowthKeys(ctx, client, a)...)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(all)
+		return
+	}
 
 	rep := upstream.RunHealthReport(ctx, client, accounts, *withChat, appVersion)
 
@@ -219,7 +232,7 @@ func printTable(rep *upstream.HealthReport) {
 			if p.Costy {
 				line += " [花积分]"
 			}
-			if p.Detail != "" && (p.Status != upstream.ProbeGreen || p.Name == "tasks" || p.Name == "models") {
+			if p.Detail != "" {
 				line += "  " + p.Detail
 			}
 			fmt.Println(line)
