@@ -29,7 +29,7 @@ function slice(from, to) {
   return src.slice(a, b);
 }
 const escSrc = slice('function esc', 'function ago');
-const healthSrc = slice('function healthStatusLevel', 'let healthCache');
+const healthSrc = slice('function shortVer', 'let healthCache');
 
 const ctx = { Array, Object, Number, String, JSON };
 vm.createContext(ctx);
@@ -37,7 +37,8 @@ vm.runInContext(escSrc + '\nthis.esc = esc;', ctx);
 vm.runInContext(healthSrc + '\nthis.healthStatusLevel = healthStatusLevel;' +
   'this.healthWorst = healthWorst; this.healthSummaryText = healthSummaryText;' +
   'this.healthNonGreen = healthNonGreen; this.healthRowHtml = healthRowHtml;' +
-  'this.healthDetailHtml = healthDetailHtml;', ctx);
+  'this.healthDetailHtml = healthDetailHtml; this.healthDetailWrapHtml = healthDetailWrapHtml;' +
+  'this.shortVer = shortVer;', ctx);
 
 const out = {
   summary: ctx.healthSummaryText({ summary: { accounts: 4, green: 3, yellow: 1, red: 0 } }),
@@ -66,6 +67,12 @@ const out = {
     { name: 'chat', status: 'green', costy: true },
   ] }),
   detailEmpty: ctx.healthDetailHtml({ probes: [] }),
+  shortFull: ctx.shortVer('1.13.2-panel+f15ee13'),
+  shortPlain: ctx.shortVer('1.13.2-panel'),
+  shortDirty: ctx.shortVer('1.13.1-panel+29e5059-dirty'),
+  shortEmpty: ctx.shortVer(''),
+  wrapHidden: ctx.healthDetailWrapHtml({ probes: [{ name: 'account', status: 'green' }] }, false),
+  wrapShown: ctx.healthDetailWrapHtml({ probes: [{ name: 'account', status: 'green' }] }, true),
 };
 process.stdout.write(Object.keys(out).map(function (k) { return k + '=' + String(out[k]); }).join('\n'));
 `
@@ -184,5 +191,36 @@ func TestAppJSHealthEscaping(t *testing.T) {
 
 	if empty := got["detailEmpty"]; !strings.Contains(empty, "没有探针结果") {
 		t.Errorf("空探针集应有明确提示：%s", empty)
+	}
+}
+
+// 侧栏版本串：窄栏里必须紧凑，否则换行撑破布局（线上就是这么坏的）。
+func TestAppJSShortVersion(t *testing.T) {
+	got := runHealthJSHarness(t)
+	want := map[string]string{
+		"shortFull":  "1.13.2+f15ee13",       // 去掉 -panel，commit 保留 7 位
+		"shortPlain": "1.13.2",               // 无 commit 时只剩版本
+		"shortDirty": "1.13.1+29e5059-dirty", // dirty 标记必须保留
+		"shortEmpty": "",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+}
+
+// 明细展开状态：轮询会重建 DOM，hidden 必须由「展开集合」驱动，不能渲染时写死。
+func TestAppJSHealthDetailWrap(t *testing.T) {
+	got := runHealthJSHarness(t)
+
+	if h := got["wrapHidden"]; !strings.Contains(h, " hidden") {
+		t.Errorf("未展开时应带 hidden 属性：%s", h)
+	}
+	if s := got["wrapShown"]; strings.Contains(s, "hidden") {
+		t.Errorf("已展开时不应带 hidden 属性：%s", s)
+	}
+	if s := got["wrapShown"]; !strings.Contains(s, "account") {
+		t.Errorf("已展开的容器应含探针明细：%s", s)
 	}
 }

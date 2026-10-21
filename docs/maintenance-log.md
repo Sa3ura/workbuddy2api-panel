@@ -165,3 +165,16 @@ PUID=10001 / PGID=10001        # 必须与 auths/、data/ 属主一致
    之后切回 10001 会 permission denied。要么不写这两个键（默认 10001），要么显式写 10001。
 2. 体检用的 `golang:1.27`（Debian 版）镜像层在国内源常拉不动；改用 `golang:1.27-alpine` 等效
    （同为 go1.27.3），且它本来就是构建用的镜像，不额外占空间。
+
+### 线上反馈修复（2026-10-22，1.13.3）
+
+首次上线后用户实测报了两个 bug，都是「自动化测试覆盖不到」的那一类：
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| 健康卡片点行展开后，过几秒自动收起 | `refreshVisible()` 每 5s 轮询 → `renderCachedHealth()` → `renderHealth()` **重建 innerHTML**，`<div class="hlt-detail" hidden>` 的 hidden 被重置 | 展开状态记进 `healthExpanded`（Set），由纯函数 `healthDetailWrapHtml(acc, expanded)` 决定 hidden；再加 `healthRenderKey`，报告内容没变就不重建 DOM |
+| 左下角侧栏布局被撑破（`v1.13.2-\npanel+f15ee13` 换行、`本地内存` 被挤走） | `.nav .sig .row` 只有 `display:flex`，无 `nowrap`/`ellipsis`；版本串带 commit 后从 11 字符涨到 20 字符 | 新增纯函数 `shortVer()`：去掉 `-panel`、commit 取 7 位（保留 `-dirty`），完整串进 `title`；CSS 给 `.sig .row > span` 加 `nowrap + ellipsis + min-width:0` |
+
+**教训**：这两条都属于「DOM 状态 / 布局」类缺陷——node 测试只跑纯函数，模拟 DOM 成本高，
+所以只能靠人眼在真环境里发现。因此 `shortVer` 与 `healthDetailWrapHtml` 都刻意做成**纯函数**
+（可被 node harness 断言），把能测的部分从不可测的部分里切出来。

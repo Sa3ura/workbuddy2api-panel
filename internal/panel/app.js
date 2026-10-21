@@ -515,8 +515,10 @@ async function loadOverview(quiet) {
   const totSum = (d.accounts || []).reduce((a, s) => a + (s.credits_total || 0), 0);
   $('sCredits').textContent = totSum > 0 ? remSum + ' / ' + totSum : remSum;
     $('sSticky').textContent = d.sticky_sessions;
-    $('navSub').textContent = 'v' + d.version;
-    $('navVer').textContent = 'v' + d.version;
+    // 侧栏宽度只有 ~150px：版本串必须用紧凑形态，否则换行撑破布局。
+    // 完整串（含 -panel 与 commit）放 title，悬停可见，信息不丢。
+    if ($('navSub')) { $('navSub').textContent = 'v' + shortVer(d.version); $('navSub').title = 'v' + String(d.version || ''); }
+    if ($('navVer')) { $('navVer').textContent = 'v' + shortVer(d.version); $('navVer').title = 'v' + String(d.version || ''); }
     $('navRedis').textContent = d.redis_mode === 'upstash' ? 'Redis 镜像' : '本地内存';
     $('navState').textContent = d.healthy > 0 ? '服务正常' : (d.total ? '无可用账号' : '待添加账号');
     const p = $('navPulse');
@@ -1551,6 +1553,22 @@ if ($('btnCompClaimAll')) $('btnCompClaimAll').onclick = async () => {
   }
 };
 
+// shortVer 侧栏用的紧凑版本串：去掉 `-panel` 后缀、commit 只留 7 位（保留 -dirty）。
+//
+// 为什么需要：侧栏宽度固定，版本串从 `1.13.0-panel`（11 字符）变成
+// `1.13.2-panel+f15ee13`（20 字符）后会换行，把「· 本地内存」挤到下一行、撑破布局。
+// 完整串仍写进 span 的 title，悬停能看到，信息不丢。
+function shortVer(v) {
+  const s = String(v || '');
+  const head = s.replace(/-panel(?=\+|$)/, '');
+  const p = head.indexOf('+');
+  if (p < 0) return head;
+  let c = head.slice(p + 1);
+  const dirty = c.slice(-6) === '-dirty';
+  if (dirty) c = c.slice(0, -6);
+  return head.slice(0, p) + '+' + c.slice(0, 7) + (dirty ? '-dirty' : '');
+}
+
 /* ── 上游健康巡检（P3 只读漂移探针） ─────────────────────────────────
    展示 data/upstream_health.json 的最近一次结论。下面的纯函数必须保持
    「输入数据 → 输出字符串」且不碰 DOM：它们由 health_frontend_test.go 用
@@ -1642,8 +1660,17 @@ function healthDetailHtml(acc) {
   }).join('');
 }
 
+// healthDetailWrapHtml 明细容器（纯函数）。hidden 由「展开集合」决定，而不是每次渲染都
+// 写死 hidden —— 否则 5 秒一次的轮询重建 innerHTML 时，用户刚展开的行会被收回去。
+function healthDetailWrapHtml(acc, expanded) {
+  return '<div class="hlt-detail"' + (expanded ? '' : ' hidden') + '>' +
+    healthDetailHtml(acc) + '</div>';
+}
+
 let healthCache = null;
 let healthInFlight = null;
+let healthRenderKey = null;          // 上次渲染的报告指纹：没变就不重建 DOM
+const healthExpanded = new Set();    // 已展开的账号 uid
 
 // renderHealth 渲染健康卡片。
 // exists=false（还没跑过巡检）时**卡片照常显示**，内容退化为引导文案——
@@ -1658,14 +1685,19 @@ function renderHealth(d) {
       $('healthList').innerHTML = '<div class="empty">尚未巡检。定时巡检默认每 6 小时一次' +
         '（配置 → 定时任务可调），也可在服务器上运行 go run ./cmd/doctor 立即生成报告。</div>';
     }
+    healthRenderKey = null;      // 报告消失后要允许下次无条件重建
+    healthExpanded.clear();      // 旧展开状态对新报告没有意义
     return;
   }
   const accounts = rep.accounts || [];
-  if ($('healthList')) {
+  // 报告内容没变就不重建列表：5 秒一次轮询会反复走这里，每轮重建 innerHTML 会把
+  // 用户展开的明细收回去、也会打断正在做文本选择的人。汇总文案仍然每次都更新。
+  const key = JSON.stringify(rep);
+  if ($('healthList') && key !== healthRenderKey) {
+    healthRenderKey = key;
     $('healthList').innerHTML = accounts.length
       ? accounts.map(function (a) {
-          return healthRowHtml(a) +
-            '<div class="hlt-detail" hidden>' + healthDetailHtml(a) + '</div>';
+          return healthRowHtml(a) + healthDetailWrapHtml(a, healthExpanded.has(String((a && a.uid) || '')));
         }).join('')
       : '<div class="empty">报告里没有账号</div>';
   }
@@ -1706,11 +1738,15 @@ async function loadHealth() {
 
 // 点行展开/收起明细。明细是行的下一个兄弟节点——不用 querySelector 拼 uid 选择器，
 // 因为 uid 可能含特殊字符，拼选择器要额外转义且容易出错。
+// 展开状态必须记进 Set：DOM 会被轮询重建，只翻 hidden 属性留不住。
 if ($('healthList')) $('healthList').addEventListener('click', function (e) {
   const row = e.target.closest('.hlt-row');
   if (!row) return;
   const det = row.nextElementSibling;
-  if (det && det.classList.contains('hlt-detail')) det.hidden = !det.hidden;
+  if (!det || !det.classList.contains('hlt-detail')) return;
+  det.hidden = !det.hidden;
+  const uid = String(row.getAttribute('data-hlt-uid') || '');
+  if (det.hidden) healthExpanded.delete(uid); else healthExpanded.add(uid);
 });
 
 if ($('btnHealthFold')) $('btnHealthFold').onclick = function () {
