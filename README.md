@@ -340,6 +340,25 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o credit ./cmd/credit
 >
 > CI 与 Docker（Linux）构建不受影响。
 
+**国内网络构建**：`dl-cdn.alpinelinux.org` 常常拉不动（表现为 `apk add` 卡住/超时）。用构建参数换源，别改 `Dockerfile`（改了以后上游更新必冲突）：
+
+```bash
+# .env（与 docker-compose.yml 同目录）
+APK_MIRROR=mirrors.aliyun.com
+
+# 或者一次性传入
+# 完整示例 .env（放 docker-compose.yml 同目录，compose 自动读取；已被 .gitignore 忽略）
+GIT_COMMIT=67fdf7d                    # 让镜像里的版本串带上 commit
+APK_MIRROR=mirrors.aliyun.com         # 国内换 apk 源
+BIND_ADDR=127.0.0.1                   # 只监听本机，面板交给反代（默认 0.0.0.0）
+PUID=10001                            # 与 auths/ data/ 属主一致；乱写会导致 permission denied
+PGID=10001
+```
+
+```bash
+docker compose build
+```
+
 ### 添加账号（登录）
 
 **方式 A：Web 面板（推荐，各平台通用，免命令行）**

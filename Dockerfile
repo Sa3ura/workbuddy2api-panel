@@ -15,8 +15,18 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.buildCommit=${GIT_C
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/credit ./cmd/credit
 
 FROM alpine:3.20
+# APK_MIRROR：可选的 apk 软件源替换（只替换主机名）。国内网络常拉不动
+# dl-cdn.alpinelinux.org（实测 HEAD 超时），改 mirrors.aliyun.com 才通。
+# 默认留空 = 保持官方源，因此对境外用户零影响；国内部署在 compose 侧传
+# args: APK_MIRROR=mirrors.aliyun.com（建议放 .env，别改 Dockerfile —— 改了
+# 每次上游更新都会冲突，这个参数就是为了消灭那种冲突）。
+ARG APK_MIRROR=
 # python3：login.sh 的 JSON 解析 / 签到 / 落盘；bash：shell 脚本体。
-RUN apk add --no-cache wget ca-certificates tzdata python3 bash \
+RUN if [ -n "$APK_MIRROR" ]; then \
+        sed -i "s/dl-cdn.alpinelinux.org/${APK_MIRROR}/g" /etc/apk/repositories; \
+        echo "apk mirror -> ${APK_MIRROR}"; \
+    fi \
+ && apk add --no-cache wget ca-certificates tzdata python3 bash \
  && adduser -D -u 10001 app \
  && mkdir -p /app/auths /app/data \
  && chown -R app:app /app

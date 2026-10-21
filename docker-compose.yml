@@ -3,9 +3,13 @@ services:
     build:
       context: .
       # 注入 commit：Docker 构建上下文排除了 .git/，镜像里读不到 vcs 信息，
-      # 于是版本串会缺 commit。用 GIT_COMMIT=$(git describe --always --dirty) docker compose build 传入。
+      # 于是版本串会缺 commit。用 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose build 传入。
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        # 可选：国内网络替换 apk 源（dl-cdn.alpinelinux.org 常拉不动）。
+        # 在 .env 里写 APK_MIRROR=mirrors.aliyun.com 即可——别改 Dockerfile，
+        # 改了以后每次上游更新都会冲突，这个参数就是为了消灭那种冲突。
+        APK_MIRROR: ${APK_MIRROR:-}
     container_name: workbuddy2api
     restart: unless-stopped
     # 容器默认以 app 用户（uid 10001）运行。宿主机挂载目录属主不同会导致
@@ -19,7 +23,9 @@ services:
     environment:
       - TZ=Asia/Shanghai
     ports:
-      - "7863:7863"
+      # BIND_ADDR 默认 0.0.0.0（对上游行为零改动）。放 127.0.0.1 即可只走本机反代，
+      # 不直接对外暴露面板——写进 .env，别改这一行（改了每次更新都冲突）。
+      - "${BIND_ADDR:-0.0.0.0}:7863:7863"
     volumes:
       - ./auths:/app/auths
       - ./data:/app/data

@@ -38,7 +38,7 @@ import (
 // ⚠️ 这个常量是 CI 的 tag 断言依据：打 tag 前必须先改这里，且 tag（去掉 -panel 后缀）必须等于它。
 // 它**只表示源码版本**，不含 commit——commit 由 buildCommit（ldflags 注入）单独给出，
 // 二者拼起来才是部署时看到的版本串，见 versionString。
-const appVersion = "1.13.1-panel"
+const appVersion = "1.13.2-panel"
 
 // buildCommit 构建时注入的 git 提交，由 ldflags 赋值：
 //
