@@ -1,0 +1,33 @@
+# 行尾与文本属性
+#
+# 背景：仓库长期无 .gitattributes，而开发机 core.autocrlf=true，导致工作区为 CRLF。
+# 后果已经发生过两次：
+#   1. gofmt -l 把全部 182 个 .go 判为"未格式化"（实为行尾差异）；
+#   2. Dockerfile 需要 sed -i 's/\r$//' 来修 shell 脚本的 CRLF，否则容器内 bash 报错。
+# 这里统一声明：源码/脚本/文档以 LF 入库并在 checkout 时保持 LF；
+# PowerShell 脚本用 CRLF（Windows 原生习惯，配合 UTF-8 BOM）。
+#
+# 注意：本文件只影响之后的 checkout；已存在的 CRLF 工作副本不会被自动重写。
+# 如需一次性统一为 LF（可选，会刷新大量 mtime）：
+#   git rm --cached -r -q . && git reset --hard
+
+* text=auto
+
+*.go        text eol=lf
+*.sh        text eol=lf
+*.py        text eol=lf
+Makefile    text eol=lf
+*.md        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.ps1       text eol=crlf
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# 二进制/资源：不做行尾转换
+*.png       binary
+*.ico       binary
+*.jpg       binary
+*.zip       binary
+*.exe       binary
