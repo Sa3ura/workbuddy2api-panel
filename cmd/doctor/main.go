@@ -23,7 +23,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +68,7 @@ func main() {
 		withChat = flag.Bool("chat", false, "追加对话探针（**消耗积分**，默认不跑）")
 		withKeys = flag.Bool("keys", false, "只导出各 growth 端点的响应键位骨架（键名，无值；用于重建协议档案）")
 		withMods = flag.Bool("models", false, "导出模型目录实测字段（id/上下文/输出上限/档位/倍率；用于重建 model-catalog 档案）")
+		withHdrs = flag.Bool("headers", false, "导出各类出站请求的真实头清单（敏感值遮蔽；用于重建 headers 档案）")
 		timeout  = flag.Duration("timeout", 90*time.Second, "整体超时")
 	)
 	flag.Parse()
@@ -119,6 +122,14 @@ func main() {
 		return
 	}
 
+	// -headers：导出各类出站请求的头清单（只本地构造，不发请求）
+	if *withHdrs {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(dumpHeaders(client, accounts))
+		return
+	}
+
 	// -models：导出模型目录实测字段（重建 model-catalog / thinking-effort 档案用）
 	if *withMods {
 		enc := json.NewEncoder(os.Stdout)
@@ -146,6 +157,103 @@ func main() {
 
 // appVersion 与 server 版本解耦：探针报告的版本号用于对照「哪版网关依赖了这套协议」。
 const appVersion = "doctor-1"
+
+// ---------- 头清单取证（docs/protocol/headers.md） ----------
+
+// sensitiveHeader 出站头里的敏感项：值是凭证或账号标识，导出时必须遮蔽。
+//
+// ⚠️ 键名必须是 **http.CanonicalHeaderKey 之后**的形态（`X-Machine-Id`，不是 `X-Machine-ID`）：
+// Go 的 http.Header 按规范键存取，把非规范写法塞进表里等于没配。本项目实际踩过——
+// 首次导出时 X-Machine-ID / X-Session-ID 原样漏出（两者是 uid 派生值，等价账号指纹）。
+// 已由 TestDumpHeaders_MasksSecrets 兜住，别再改回非规范写法。
+var sensitiveHeader = map[string]bool{
+	"Authorization":   true, // Bearer accessToken
+	"X-Refresh-Token": true, // refreshToken（只在刷新请求出现）
+	"X-Device-Token":  true, // 设备风控令牌
+	"Cookie":          true,
+	"X-Machine-Id":    true, // uid 派生（稳定标识，等价账号指纹）
+	"X-Session-Id":    true,
+	"X-User-Id":       true,
+	"X-Enterprise-Id": true,
+	"X-Tenant-Id":     true,
+}
+
+// headerDump 一类出站请求的完整头清单（敏感值已遮蔽）。
+type headerDump struct {
+	Kind    string            `json:"kind"`
+	Realm   string            `json:"realm"`
+	Headers map[string]string `json:"headers"`
+}
+
+// dumpHeaders 在本地构造各类出站请求并导出实际会发出的头。
+//
+// 为什么不真发请求：头清单是"我们发什么"的事实，构造即可得到；真发只会多一次
+// 上游调用，且拿不到额外信息（上游不回显请求头）。
+func dumpHeaders(c *upstream.Client, accounts []*auth.Auth) []headerDump {
+	out := make([]headerDump, 0, 8)
+	if len(accounts) == 0 {
+		return out
+	}
+	a := accounts[0] // 头族只与 realm / 企业身份有关，取首个账号即可代表
+
+	newReq := func(path string) *http.Request {
+		req, _ := http.NewRequest(http.MethodPost, "https://copilot.tencent.com"+path, nil)
+		return req
+	}
+
+	collect := func(kind string, req *http.Request) headerDump {
+		h := make(map[string]string, len(req.Header))
+		for k, v := range req.Header {
+			val := ""
+			if len(v) > 0 {
+				val = v[0]
+			}
+			if sensitiveHeader[http.CanonicalHeaderKey(k)] {
+				val = maskValue(val)
+			}
+			h[k] = val
+		}
+		return headerDump{Kind: kind, Realm: a.Realm(), Headers: h}
+	}
+
+	chatReq := newReq("/v2/chat/completions")
+	c.ChatHeaders(chatReq, a, "", upstream.ChatMeta{
+		ConversationID:        "<conversation_id>",
+		ConversationRequestID: "<conversation_request_id>",
+		TraceID:               "<trace_id>",
+	})
+	out = append(out, collect("chat（对话 / 流式）", chatReq))
+
+	billReq := newReq("/billing/meter/get-user-resource")
+	c.BillingHeaders(billReq, a)
+	out = append(out, collect("billing（签到 / 余额 / 补偿）", billReq))
+
+	refreshReq := newReq("/plugin/auth/token/refresh")
+	c.RefreshHeaders(refreshReq, a)
+	out = append(out, collect("refresh（token 刷新）", refreshReq))
+
+	searchReq := newReq("/agenttool/v1/search")
+	c.SearchHeaders(searchReq, a, "", upstream.ChatMeta{ConversationRequestID: "<conversation_request_id>"})
+	out = append(out, collect("search（联网搜索）", searchReq))
+
+	return out
+}
+
+// maskValue 遮蔽敏感值，但保留「有没有配、大概多长」这两个排障必需信息。
+func maskValue(v string) string {
+	if v == "" {
+		return ""
+	}
+	prefix := ""
+	if i := strings.IndexByte(v, ' '); i > 0 { // "Bearer xxx" 保留 scheme
+		prefix = v[:i+1]
+		v = v[i+1:]
+	}
+	if len(v) <= 6 {
+		return prefix + "<redacted>"
+	}
+	return prefix + "<redacted:" + strconv.Itoa(len(v)) + "chars,head=" + v[:4] + ">"
+}
 
 // modelDump 模型目录的取证条目（重建 model-catalog / thinking-effort 档案用）。
 //

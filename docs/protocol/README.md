@@ -73,7 +73,7 @@
 | `TEMPLATE.md` | — | ✅ 模板 |
 | `UNVERIFIED.md` | B | ✅ 待验证事实清单（探针校准的靶子） |
 | `growth-report.md` | **A** | ✅ **已校准**（2026-10-22 doctor 实测：streak/tasks/buddy/lottery 键骨架 + 17 任务码 + 猫 instance_id 漂移已修） |
-| `headers.md` | — | ⬜ 待建（优先，风控第一道） |
+| `headers.md` | **A** | ✅ **已校准**（2026-10-22 `doctor -headers`：四类头族 28/8/12/30 个头实测 + 风控信号表） |
 | `desktop-events.md` | — | ⬜ 待建 |
 | `model-catalog.md` | **A** | ✅ **已校准**（2026-10-22 `doctor -models`：22 模型全表 + 档位/倍率/促销实测） |
 | `thinking-effort.md` | **A**（形态）/ B（行为） | ✅ **已校准形态**（档位枚举与每模型默认档实测；注入/降级为代码实现） |

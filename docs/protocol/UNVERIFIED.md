@@ -20,7 +20,7 @@
 | 8 | 上游 `max_output_tokens` 声称值普遍虚高，多个模型被静默钳制 | README「探测模型真实输出上限」 | L1 | `scripts/probe_max_tokens.py`（**花积分**） | ⬜ B |
 | 9 | 补偿接口 `active=false` 是"当前无活动"的正常 200，不是错误 | `upstream/compensation.go` | L2 | `doctor:compensation` | ⬜ B |
 | 10 | `/agenttool/v1/search` 结果条数固定 5，`allowed_domains`/`freshness`/`blocked_domains` 静默失效 | README「联网搜索」节 | L2 | `doctor:search` | ⬜ B |
-| 11 | WAF 403 拦的是**网关出口 IP** 而非账号（换号无效），需换出口 | `server/wafip.go:3`（原 `fork-scan-absorb T-1`） | L0 | 观测型：连续 403 时比对 IP/账号维度 | ⬜ B |
+| 11 | WAF 403 拦的是**网关出口 IP** 而非账号（换号无效），需换出口 | `server/wafip.go:3`（原 `fork-scan-absorb T-1`） | L0 | 观测型：连续 403 时比对 IP/账号维度 | 🟡 **头族部分已校准（2026-10-22）**：四类头族完整导出且 8 探针全绿＝头被接受；**WAF 按 IP 拦截本身未复现**（无 403 样本）。见 `headers.md` §6 |
 | 12 | global 新号需先完成注册地区（`login/register/user/complete`）才可激活 trial，否则 chat 报 `14017` | `upstream/global_register.go:3` | L2 | `doctor:account` + 一次 trial 领取 | ⬜ B |
 | 13 | 错误码语义：`11101`/`11102`/`11158`/`12153`/`14017`/`14051`/`10001` | `upstream/client.go`、`hint.go`、README 错误分类表 | L0/L1 | 被动观测 + `doctor` 分类断言 | ⬜ B |
 | 14 | 流是被截断时 `tool_calls.arguments` 为半截 JSON，须丢弃而非补 `{}` | `upstream/truncation.go` | L1 | 已有单测覆盖语义；上游行为属推测 | ⬜ B |
