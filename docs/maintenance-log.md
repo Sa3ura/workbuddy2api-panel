@@ -67,10 +67,21 @@ go run ./cmd/doctor                    → 8 探针全绿（真实 cn 号实测�
 
 | 项 | 内容 | 成本 | 价值 |
 |---|---|---|---|
-
-| **P4 CI 加固** | `go vet` / `gofmt` / `staticcheck` / `govulncheck` + 4 个守卫脚本（fmt、docs-secrets、protocol-refs）挂进 `.github/workflows` | 1h | 让"能长期维护"变成自动的，而不是靠人记得跑 |
+| **升级 Go 工具链**（P4 副产物） | `govulncheck` 实测 **43 条标准库漏洞**，根因是 `go.mod` 钉的 Go 1.22.5 偏旧（x509 / net/http 等已有修复的 CVE）。需同步改 `go.mod` + `Dockerfile`（golang:1.23-alpine）+ CI `go-version-file`，然后重跑全量测试与 `-race` | 半天 | 唯一的"确定存在"的安全缺口；不升则 govulncheck 永远红，也就永远只能非阻塞 |
 | **P5 降档预案** | `data/presets/{normal,throttle,survival}.json` + `docs/RUNBOOK.md`（降档梯子、暂停选号用法、备份恢复）+ **真做一次恢复演练** | 1天 | 上游收紧时能 5 分钟内降档，而不是现场找参数 |
 | **P1 剩余档案** | `desktop-events.md`（L3 事件链，最脆）、`school-mp.md`（活动已结束）、`risk-control.md`（部分已并入 headers §6）、`global-trial.md`（**需 global 账号**）、`perf-baseline.md` | 各 0.5-1h | 边际价值递减，按需 |
+| ✅ **P4 CI 加固** | 五个守卫挂进 `.github/workflows`，本地 `check` 与 CI 同口径（`make ci`） | 已完成 | 见下「P4 记录」 |
+
+### P4 记录（2026-10-22）
+
+- **阻塞门禁**：`go test` / `gofmt` / `go vet` / `docs-secrets` / `protocol-refs` / `staticcheck -checks 'SA*'`
+- **非阻塞（观测）**：全量 staticcheck（剩 16 条 unused 与风格）、`govulncheck`、`-race` 独立 job
+- 接入时 SA* 报了 4 条，全部处理：`handler_test.go` 空 if 分支（删）、`transition_test.go` 同表达式
+  （改成三次显式取值并分别断言，判据更清楚）、`client.go` chatPaths 循环无条件终止（加
+  `//lint:ignore` 说明 #119 后单路径、保留 for 为复用构造）、`global_register.go` `needsRegion`
+  未使用（并进报错信息，排障时能区分"提交没落账"）。
+- **两个刻意的保守决定**：`-race` 首版非阻塞（本机无 gcc，无法证明接入时是绿的）；
+  govulncheck 非阻塞（Go 版本问题，不是代码问题）。**没验证过的门禁不设阻塞**。
 
 ### 上线前（等决定）
 

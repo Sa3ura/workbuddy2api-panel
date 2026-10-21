@@ -167,10 +167,22 @@ switch ($Task) {
     'race' { Invoke-Go @('test', '-race', './internal/pool/...', './internal/scheduler/...') }
 
     'check' {
-        # 与 Makefile check 等价：fmt-check → vet → test
+        # 与 CI（.github/workflows/go-binaries.yml 的 test job）同口径：
+        # fmt-check → vet → test → docs-secrets → protocol-refs。
+        # 两个文档守卫是 python 脚本；本机没装 python 时跳过并提示（CI 上必然有）。
         Test-GoFmt
         Invoke-Go @('vet', './...')
         Invoke-Go @('test', './...')
+        $py = Get-Command python -ErrorAction SilentlyContinue
+        if ($py) {
+            & $py.Source 'scripts/check_docs_secrets.py'
+            if ($LASTEXITCODE -ne 0) { throw 'docs 密钥扫描未通过' }
+            & $py.Source 'scripts/check_protocol_refs.py'
+            if ($LASTEXITCODE -ne 0) { throw '协议引用锚点检查未通过' }
+        }
+        else {
+            Write-Host 'python 未安装：跳过文档守卫（CI 上会跑）' -ForegroundColor DarkGray
+        }
         Write-Host 'check: all green' -ForegroundColor Green
     }
 }

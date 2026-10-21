@@ -227,7 +227,9 @@ func (c *Client) GlobalCompleteRegistration(a *auth.Auth) (activated bool, err e
 		return false, err
 	}
 	if !activated {
-		return false, fmt.Errorf("register still not activated after region submit: %s", msg)
+		// 把 needsRegion 带进报错：补地区后仍未激活、且上游仍在要地区，说明提交没落账
+		// （地区白名单/接口形态变了）——这是排障时最关键的一条区分。
+		return false, fmt.Errorf("register still not activated after region submit (needsRegion=%v): %s", needsRegion, msg)
 	}
 	return true, nil
 }

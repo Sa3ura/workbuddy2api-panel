@@ -214,14 +214,26 @@ go run ./cmd/doctor -offline                       # 只校验本地配置/文�
 
 ## P4 测试与 CI 加固（1-2 天，可与 P1 并行）
 
+> **状态：已完成（2026-10-22）**。本地 `check` 与 CI 同口径：
+> `gofmt → vet → test → docs-secrets → protocol-refs`（`scripts/build.ps1 check` / `make ci`）。
+>
+> **阻塞**：test / gofmt / vet / docs-secrets / protocol-refs / `staticcheck -checks SA*`
+> **非阻塞（观测）**：全量 staticcheck（剩 16 条 unused 与风格）、`govulncheck`、`-race` 独立 job
+>
+> 两个必须知道的结论：
+> 1. **govulncheck 实测 43 条标准库漏洞** —— 根因是 `go.mod` 钉的 Go 1.22.5 偏旧
+>    （x509 / net/http 等已有修复的 CVE）。解法是**升工具链**，不是改代码；已转独立待办。
+> 2. **`-race` 首版设成非阻塞** —— 维护者本机无 gcc，无法预先验证接入时是否已绿。
+>    观察 1-2 次 CI 全绿后再去掉 `continue-on-error`。没验证过的门禁不能设成阻塞。
+
 | # | 任务 | 做法 | 验收 |
 |---|---|---|---|
-| P4a-1 | 静态检查 | `.github/workflows/go-binaries.yml` 的 `test` job 里加 `go vet ./...`、`gofmt -l .`（非空即失败）、`staticcheck` | PR 上四类检查常绿 |
-| P4a-2 | 漏洞扫描 | 加 `govulncheck ./...`（允许非阻塞，先观察一个月） | 有报告产出 |
-| P4a-3 | 文档密钥扫描 | 把 P1-5 脚本挂进 CI | 故意提交假 token 能拦住 |
-| P4b-1 | 竞态 | `go test -race ./internal/pool/... ./internal/scheduler/...` | 无 race 报告 |
-| P4b-2 | golden 扩容 | `desktop.go` / `tasks.go` 的请求体做成快照测试（`sse/dsml/payload` 已有较强测试，这两块最弱） | 新增 4-6 个快照 |
-| P4b-3 | 依赖 | 开 Dependabot（仅 go 模块，5 个间接依赖，摩擦极小） | 首个 PR 正常 |
+| P4a-1 | 静态检查 | CI 加 `gofmt` / `go vet` / `staticcheck -checks 'SA*'`（均阻塞）+ 全量 staticcheck（观测） | ✅ 已完成。接入时把 4 条 SA 全处理：2 条真修（空分支、同表达式测试）、1 条加 lint directive（chatPaths 单路径说明）、1 处让 `needsRegion` 进报错 |
+| P4a-2 | 漏洞扫描 | `govulncheck@v1.1.4`（非阻塞） | ✅ 已接入。**实测 43 条标准库漏洞** → 转独立任务：升 Go 工具链 |
+| P4a-3 | 文档密钥扫描 | 把密钥扫描脚本挂进 CI（阻塞） | ✅ 已完成，顺带挂上 `protocol-refs` 锚点检查 |
+| P4b-1 | 竞态 | `go test -race ./internal/pool/... ./internal/scheduler/...`（独立 job，不拖慢 test job） | ✅ 已接入（**首版非阻塞**，见上） |
+| P4b-2 | golden 扩容 | `desktop.go` / `tasks.go` 的请求体做成快照测试 | ⬜ 未做（成本高、收益偏 L3） |
+| P4b-3 | 依赖 | 开 Dependabot | ⬜ 未做（GitHub 仓库设置里开，非代码改动） |
 
 **注意**：不要动现有发布纪律（`appVersion` ↔ tag 一致性断言、五平台矩阵）——那块是作者留下的好东西。
 

@@ -112,7 +112,16 @@ func TestTransitionSessionDeadDisableClearsCooling(t *testing.T) {
 		t.Fatal("precondition: 应处于软冷却")
 	}
 
-	if p.NoteSessionDead("u1") || p.NoteSessionDead("u1") || !p.NoteSessionDead("u1") {
+	// 阈值是「连续 3 次才禁用」：前两次必须返回 false，第 3 次才为 true。
+	// 写成 `a || b || !c` 靠短路其实也能跑，但表达式里两次 NoteSessionDead 字面相同，
+	// 读的人分不清是在验证「第 3 次」还是「三次其一」——显式取值后各自断言。
+	first := p.NoteSessionDead("u1")
+	second := p.NoteSessionDead("u1")
+	third := p.NoteSessionDead("u1")
+	if first || second {
+		t.Fatalf("第 1/2 次不应达阈值（first=%v second=%v）", first, second)
+	}
+	if !third {
 		t.Fatal("第 3 次 NoteSessionDead 应达阈值禁用")
 	}
 	st, _ := p.Status("u1")

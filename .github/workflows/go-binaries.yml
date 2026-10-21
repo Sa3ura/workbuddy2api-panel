@@ -37,8 +37,72 @@ jobs:
       # ubuntu runner 自带 node → panel 包的 JS 运行时冒烟测试（TestAppJSTopLevelSmoke）会真实执行
       - run: go test ./...
 
+      # ── 门禁（阻塞）：红了就是确定的问题，不允许合并 ──
+      #
+      # 为什么把这些从「本地手动跑 scripts/build.ps1 check」搬进 CI：
+      # 本地门禁只对"记得跑的人"生效。作者停更后，仓库的长期健康不能依赖记忆——
+      # 五个守卫（test / gofmt / vet / docs-secrets / protocol-refs）必须在每次 push 与 PR 自动执行。
+      - name: gofmt
+        run: |
+          out="$(gofmt -l cmd internal)"
+          if [ -n "$out" ]; then
+            echo "::error::以下文件未 gofmt（go fmt ./cmd/... ./internal/... 后提交）"
+            echo "$out"
+            exit 1
+          fi
+          echo "gofmt: clean"
+
+      - name: go vet
+        run: go vet ./...
+
+      # 维护文档会抄录上游请求示例，最容易把真实 token / 手机号一起带进版本库。
+      - name: docs 密钥与个人信息扫描
+        run: python3 scripts/check_docs_secrets.py
+
+      # 代码注释里指向外部逆向文档的引用（sse.ts、data/desktop-task-protocol.md …）永久不可得，
+      # 必须同时给出 docs/protocol/ 本地锚点，否则后来人会以为有文件被误删、白找半天。
+      - name: 协议引用锚点检查
+        run: python3 scripts/check_protocol_refs.py
+
+      # 只跑 SA*：这些是"真会出错"的类别（循环无条件终止 / 同表达式 / 未使用赋值 …）。
+      # 接入时把 4 条 SA 全部处理干净（2 条真修、1 条加 lint directive 说明、1 条清空分支），
+      # 因此可以直接设为阻塞。版本钉住：staticcheck 2025.x 要求 go>=1.23，而 go.mod 是 1.22.5。
+      - name: staticcheck（SA* 阻塞）
+        run: go run honnef.co/go/tools/cmd/staticcheck@2024.1.1 -checks 'SA*' ./...
+
+      # ── 观测（非阻塞）：先跑起来看结果，逐批清理后再转阻塞 ──
+      #
+      # 全量 staticcheck 剩 16 条，绝大多数是 U1000（未使用的函数/常量，部分是有意保留的
+      # 能力入口）与 S1xxx 风格建议。设成阻塞会逼着删掉这些保留项，收益不抵风险。
+      - name: staticcheck 全量（观测，不阻塞）
+        continue-on-error: true
+        run: go run honnef.co/go/tools/cmd/staticcheck@2024.1.1 ./...
+
+      # govulncheck 当前报 43 条标准库漏洞——根因是 go.mod 钉的 Go 1.22.5 偏旧
+      # （x509 / net/http 等已有修复的 CVE）。解法是升工具链而非改代码，属独立任务；
+      # 在那之前保持非阻塞，否则 CI 从第一天就恒红。
+      - name: govulncheck（观测，不阻塞）
+        continue-on-error: true
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  # 竞态检测单独成 job：-race 需要 cgo（CI 的 ubuntu 自带 gcc），耗时约 2-3 倍，
+  # 塞进 test job 会拖慢每次 push。
+  # 首版非阻塞：维护者本机无 gcc，无法预先验证"接入时是否已绿"。观察 1-2 次 CI 全绿后
+  # 去掉 continue-on-error 即转为阻塞。
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # 只测并发最密的两包：pool（在途租约 / 冷却 / 状态机）与 scheduler（多 ticker + 热改配置）
+      - name: go test -race（pool / scheduler）
+        continue-on-error: true
+        run: go test -race ./internal/pool/... ./internal/scheduler/...
+
   build:
-    needs: test
+    needs: [test, race]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -71,7 +71,19 @@ build_all() {
 
 case "${1:-all}" in
   all|build) build_all ;;
-  check)     fmt_check; "$GO" vet ./...; "$GO" test ./...; echo "check: all green" ;;
+  check)
+    # 与 CI（go-binaries.yml 的 test job）同口径：fmt → vet → test → 两个文档守卫
+    fmt_check
+    "$GO" vet ./...
+    "$GO" test ./...
+    if command -v python3 >/dev/null 2>&1; then
+      python3 scripts/check_docs_secrets.py
+      python3 scripts/check_protocol_refs.py
+    else
+      echo "python3 未安装：跳过文档守卫（CI 上会跑）" >&2
+    fi
+    echo "check: all green"
+    ;;
   fmt-check) fmt_check ;;
   vet)       "$GO" vet ./... ;;
   test)      "$GO" test ./... ;;

@@ -1657,10 +1657,11 @@ func TestCustomModeFingerprintSanitizePreserved(t *testing.T) {
 	if !strings.Contains(out, customSys) {
 		t.Errorf("out body should contain custom system prompt: %s", out)
 	}
-	if strings.Contains(out, "official CLI for Claude.") && strings.Contains(out, "You are Claude Code, Anthropic's") {
-		// 旧 system 原文（含句点）不应以 system 角色出现；但 sanitize 把它改写为
-		// "...official CLI tool for Claude."，所以原文 fingerprint 串应消失。
-	}
+	// 旧 system 原文（含句点）不应以 system 角色出现；但 sanitize 会把它改写成
+	// "...official CLI tool for Claude."，所以原文 fingerprint 串必然消失。
+	// 之所以不在这里额外断言「system 角色里没有原文」，是因为下一段已经用
+	// 更严格的逐字判据覆盖了同一件事（原文串在出站 body 里必须不存在）——
+	// 原先这里是个空 if 分支（staticcheck SA9003），留着只会让读者以为有独立校验。
 	// 原始指纹串（逐字精确匹配）在出站 body 中应被改写：
 	// "official CLI for Claude." → "official CLI tool for Claude."
 	// "Main branch (" → "Default branch ("

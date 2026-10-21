@@ -20,7 +20,7 @@ GOFMT    ?= gofmt
 LDFLAGS  := -s -w
 VERSION  := $(shell grep -oP 'appVersion = "\K[^"]+' cmd/server/main.go 2>/dev/null || echo unknown)
 
-.PHONY: all build test vet fmt-check check race vuln version docs-refs clean help
+.PHONY: all build test vet fmt-check check race vuln version docs-refs docs-secrets ci clean help
 
 all: build
 
@@ -64,6 +64,14 @@ version:
 # 协议引用守卫：代码里指向外部材料的注释必须带 docs/protocol/ 锚点
 docs-refs:
 	@python scripts/check_protocol_refs.py
+
+# 维护文档的密钥 / 个人信息扫描（CI 同款门禁）
+docs-secrets:
+	@python scripts/check_docs_secrets.py
+
+# 与 CI 对齐的完整门禁：gofmt + vet + test + 两个文档守卫
+ci: fmt-check vet test docs-secrets docs-refs
+	@echo "ci: all green"
 
 clean:
 	rm -rf $(BIN_DIR)
