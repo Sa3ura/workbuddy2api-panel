@@ -141,7 +141,7 @@ tag: v1.13.0-maintain-base
 > ```powershell
 > go run ./cmd/doctor -config config.json                    # 竖排报告
 > go run ./cmd/doctor -config config.json -json              # 机读
-> go run ./cmd/doctor -account <uid> -out ''                 # 单号、不落盘
+> go run ./cmd/doctor -account <uid> -out none                 # 单号、不落盘
 > go run ./cmd/doctor -chat                                  # 追加对话探针（花积分）
 > ```
 >

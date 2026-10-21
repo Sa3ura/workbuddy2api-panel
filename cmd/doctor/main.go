@@ -63,7 +63,7 @@ func main() {
 		authDir  = flag.String("auth-dir", "", "凭证目录（默认取配置的 auth_dir，再回落 ./auths）")
 		uid      = flag.String("account", "", "只检查指定 uid")
 		asJSON   = flag.Bool("json", false, "输出 JSON（默认人类可读表）")
-		outPath  = flag.String("out", "data/upstream_health.json", "健康报告落盘路径（空 = 不落盘）")
+		outPath  = flag.String("out", "data/upstream_health.json", "健康报告落盘路径；none/off/- 表示不落盘")
 		withChat = flag.Bool("chat", false, "追加对话探针（**消耗积分**，默认不跑）")
 		withKeys = flag.Bool("keys", false, "只导出各 growth 端点的响应键位骨架（键名，无值；用于重建协议档案）")
 		timeout  = flag.Duration("timeout", 90*time.Second, "整体超时")
@@ -121,7 +121,7 @@ func main() {
 
 	rep := upstream.RunHealthReport(ctx, client, accounts, *withChat, appVersion)
 
-	if *outPath != "" {
+	if !reportDisabled(*outPath) {
 		writeReport(*outPath, rep)
 	}
 
@@ -138,6 +138,20 @@ func main() {
 
 // appVersion 与 server 版本解耦：探针报告的版本号用于对照「哪版网关依赖了这套协议」。
 const appVersion = "doctor-1"
+
+// reportDisabled 判断 -out 是否要求不落盘。
+//
+// 为什么不用「空字符串」表示关闭：**Windows PowerShell 5.1 会把空字符串参数直接丢掉**，
+// `-out ”  -timeout 90s` 到 Go 这边变成 `-out -timeout 90s`——于是报告被写进一个
+// 名为 `-timeout` 的文件（本项目实际踩过）。所以关闭写盘要显式写 none/off/-。
+func reportDisabled(path string) bool {
+	switch strings.ToLower(strings.TrimSpace(path)) {
+	case "", "none", "off", "-", "null":
+		return true
+	default:
+		return false
+	}
+}
 
 // loadConfig 读配置；文件不存在或解析失败**不致命**（探针仍可用默认值跑）。
 func loadConfig(path string) doctorConfig {
