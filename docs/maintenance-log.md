@@ -67,11 +67,32 @@ go run ./cmd/doctor                    → 8 探针全绿（真实 cn 号实测�
 
 | 项 | 内容 | 成本 | 价值 |
 |---|---|---|---|
-| **升级 Go 工具链**（P4 副产物） | `govulncheck` 实测 **43 条标准库漏洞**，根因是 `go.mod` 钉的 Go 1.22.5 偏旧（x509 / net/http 等已有修复的 CVE）。需同步改 `go.mod` + `Dockerfile`（golang:1.23-alpine）+ CI `go-version-file`，然后重跑全量测试与 `-race` | 半天 | 唯一的"确定存在"的安全缺口；不升则 govulncheck 永远红，也就永远只能非阻塞 |
+| ✅ **升级 Go 工具链** | Go 1.22.5 → **1.27.3**；43 条标准库漏洞清零，`govulncheck` 已转阻塞（详见下「Go 升级记录」） | 已完成 | 目前唯一"确定存在"的安全缺口已关闭 |
 | **P5 降档预案** | `data/presets/{normal,throttle,survival}.json` + `docs/RUNBOOK.md`（降档梯子、暂停选号用法、备份恢复）+ **真做一次恢复演练** | 1天 | 上游收紧时能 5 分钟内降档，而不是现场找参数 |
 | **P1 剩余档案** | `desktop-events.md`（L3 事件链，最脆）、`school-mp.md`（活动已结束）、`risk-control.md`（部分已并入 headers §6）、`global-trial.md`（**需 global 账号**）、`perf-baseline.md` | 各 0.5-1h | 边际价值递减，按需 |
 | ✅ **P4 CI 加固** | 五个守卫挂进 `.github/workflows`，本地 `check` 与 CI 同口径（`make ci`） | 已完成 | 见下「P4 记录」 |
 
+### Go 升级记录（2026-10-22）
+
+`govulncheck` 在 P4 接入时报 **43 条标准库漏洞**，全部来自 Go 1.22.5 的 x509 / net/http 等。
+升级到当前最新稳定版 **1.27.3** 后：**No vulnerabilities found**。
+
+改动范围（四处必须同步，否则 CI 与镜像会打架）：
+
+| 位置 | 改动 |
+|---|---|
+| `go.mod` | `go 1.22.5` → `go 1.27.3`；`go mod tidy` 顺带把 `go-redis/v9` 从 indirect 纠正为 direct require（它确实被 `redisstore` 直接 import），`golang.org/x/sys` 不再单列 |
+| `go.sum` | 多出 go-redis 的 test-only 依赖哈希（bsm/ginkgo、gomega、testify…），仅 go.sum 记录，不进构建 |
+| `Dockerfile` | `golang:1.23-alpine` → `golang:1.27-alpine` |
+| CI | 静态检查工具跟随升级：`staticcheck@2026.2.2`（旧版 2024.1.1 不认识新语言特性）、`govulncheck@v1.9.0` 且**转阻塞** |
+| README | Go 徽章与「宿主机 Go ≥ 1.27.3」 |
+
+升级时的新发现：**Go 1.27 的 gofmt 会重新对齐 `sanitize.go` 里 `sanitizeFeatures` 的尾随注释**
+（CJK 注释宽度计算变了）。已本地 `gofmt -w` 应用，`git diff --ignore-all-space` 为空——纯对齐，
+零语义改动。其余 182 个"未格式化"文件全是 CRLF，由容忍门禁正确忽略。
+
+验证：`check: all green`（新工具链）、`govulncheck` 零漏洞、`staticcheck SA*` 干净、
+全量 `go test ./...` 18 个包全绿。
 ### P4 记录（2026-10-22）
 
 - **阻塞门禁**：`go test` / `gofmt` / `go vet` / `docs-secrets` / `protocol-refs` / `staticcheck -checks 'SA*'`

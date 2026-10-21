@@ -32,7 +32,7 @@ flowchart LR
 
 | # | 任务 | 具体做法 | 验收 |
 |---|---|---|---|
-| P0-1 | 装 Go | 装 **1.22.5**（对齐 `go.mod`）。或临时用 Docker：`docker run --rm -v %cd%:/w -w /w golang:1.23 go build ./...` | `go version` 有输出 |
+| P0-1 | 装 Go | 装与 `go.mod` 一致的版本（现为 **1.27.3**）。或临时用 Docker：`docker run --rm -v %cd%:/w -w /w golang:1.27 go build ./...` | `go version` 有输出 |
 | P0-2 | 跑通基线 | `go build ./...` → `go vet ./...` → `go test ./...`。**注意**：`TestAppJSTopLevelSmoke` 需要 node，没 node 会 skip/失败——先确认是 skip 而非 fail | 三条命令全绿 |
 | P0-3 | 记录 green commit | `git rev-parse --short HEAD` 记进维护笔记；`git tag v1.13.0-maintain-base` | `git tag -l "*maintain*"` 有输出 |
 | P0-4 | 构建脚本化 | 新建 `Makefile`（`build`/`test`/`vet`/`all`/`clean`）+ `scripts/build.ps1` + `scripts/build.sh`，把 README「方式三」4 条 `go build` 收进去 | `make all` 一条命令产出 4 个二进制 |
@@ -47,8 +47,11 @@ flowchart LR
 环境与预期不同：**这台机器既没有 Go 也没有 Docker**，改用便携版 Go（不改系统 PATH）：
 
 ```
-E:\Documents\下载\新建文件夹 (11)\tools\go\bin\go.exe   # go1.22.5 windows/amd64
+E:\Documents\下载\新建文件夹 (11)\tools\go\bin\go.exe   # 当前 go1.27.3 windows/amd64
 ```
+
+> 路径固定、内容可换：2026-10-22 升 Go 工具链时把 `tools\go` 换成 1.27.3（旧的 1.22.5 归档为
+> `tools\go1.22.5` 备回滚）。脚本无需改动，因为它们只认路径。
 
 `scripts/build.ps1` 会自动发现它（GBIN → PATH → `..\tools\go` → `.tools\go`），换机器时无需改脚本。
 
@@ -218,18 +221,18 @@ go run ./cmd/doctor -offline                       # 只校验本地配置/文�
 > `gofmt → vet → test → docs-secrets → protocol-refs`（`scripts/build.ps1 check` / `make ci`）。
 >
 > **阻塞**：test / gofmt / vet / docs-secrets / protocol-refs / `staticcheck -checks SA*`
-> **非阻塞（观测）**：全量 staticcheck（剩 16 条 unused 与风格）、`govulncheck`、`-race` 独立 job
+> **非阻塞（观测）**：全量 staticcheck（剩 16 条 unused 与风格）、`-race` 独立 job（govulncheck 已转阻塞）
 >
 > 两个必须知道的结论：
-> 1. **govulncheck 实测 43 条标准库漏洞** —— 根因是 `go.mod` 钉的 Go 1.22.5 偏旧
->    （x509 / net/http 等已有修复的 CVE）。解法是**升工具链**，不是改代码；已转独立待办。
+> 1. ~~govulncheck 实测 43 条标准库漏洞~~ → **已解决（同日）**：根因是 `go.mod` 钉的 Go 1.22.5 偏旧
+>    （x509 / net/http 等已有修复的 CVE）。升到 **1.27.3** 后零漏洞，`govulncheck` 已转为**阻塞**门禁。
 > 2. **`-race` 首版设成非阻塞** —— 维护者本机无 gcc，无法预先验证接入时是否已绿。
 >    观察 1-2 次 CI 全绿后再去掉 `continue-on-error`。没验证过的门禁不能设成阻塞。
 
 | # | 任务 | 做法 | 验收 |
 |---|---|---|---|
 | P4a-1 | 静态检查 | CI 加 `gofmt` / `go vet` / `staticcheck -checks 'SA*'`（均阻塞）+ 全量 staticcheck（观测） | ✅ 已完成。接入时把 4 条 SA 全处理：2 条真修（空分支、同表达式测试）、1 条加 lint directive（chatPaths 单路径说明）、1 处让 `needsRegion` 进报错 |
-| P4a-2 | 漏洞扫描 | `govulncheck@v1.1.4`（非阻塞） | ✅ 已接入。**实测 43 条标准库漏洞** → 转独立任务：升 Go 工具链 |
+| P4a-2 | 漏洞扫描 | `govulncheck@v1.9.0`（**阻塞**） | ✅ 已完成：升 Go 1.22.5 → **1.27.3** 后 43 条标准库漏洞**全部清零**，已转为阻塞门禁 |
 | P4a-3 | 文档密钥扫描 | 把密钥扫描脚本挂进 CI（阻塞） | ✅ 已完成，顺带挂上 `protocol-refs` 锚点检查 |
 | P4b-1 | 竞态 | `go test -race ./internal/pool/... ./internal/scheduler/...`（独立 job，不拖慢 test job） | ✅ 已接入（**首版非阻塞**，见上） |
 | P4b-2 | golden 扩容 | `desktop.go` / `tasks.go` 的请求体做成快照测试 | ⬜ 未做（成本高、收益偏 L3） |

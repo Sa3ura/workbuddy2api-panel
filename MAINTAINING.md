@@ -31,12 +31,14 @@
 当前这台机器**没有安装 Go**，仓库也无法自证可构建——先解决这个。
 
 ```powershell
-# 装 Go 1.22.5（与 go.mod 一致）；或用 Docker 构建
+# 装 Go 1.27.3（与 go.mod 一致）；或用 Docker 构建
 go build ./... ; go vet ./... ; go test ./...
 ```
 
 - 记录一条 **green commit**（全绿的那个 hash）并打 tag（如 `v1.13.0-maintain-base`）。以后任何改动都以"回到 green commit"为退路。
-- **版本漂移**：`go.mod` 是 `go 1.22.5`，`Dockerfile` 用 `golang:1.23-alpine`。二者选一（建议统一到 1.23 并同步改 `go.mod`，减轻后续依赖升级摩擦）。
+- **版本对齐**（已解决 2026-10-22）：原先 `go.mod` 是 `1.22.5` 而 `Dockerfile` 用 `golang:1.23-alpine`。
+  现已统一到 **1.27.3**（`go.mod` / `Dockerfile` / README / CI 四处同步），并顺带清掉 43 条标准库漏洞
+  ——**教训是"版本漂移"不只是洁癖，它会直接变成 `govulncheck` 的恒红告警**。
 - 构建脚本化：加 `Makefile` 或 `scripts/build.ps1` + `scripts/build.sh`，把 README「方式三」里散落的 4 条 `go build` 收成一条 `make all`。
 - 依赖面很小（`go-redis`、`xxhash`、`rendezvous`、`atomic`、`x/sys`，且均为 indirect），供应链风险低，保持这个规模。
 
