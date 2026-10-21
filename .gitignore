@@ -19,6 +19,9 @@ config.json
 # Build artifacts
 *.tmp
 __pycache__/
+/bin/
+# 便携 Go 工具链（接管维护时的约定位置：仓库同级 tools\go 或仓库内 .tools\go）
+/.tools/
 
 # Backups (contains auth tokens)
 backups/
@@ -26,14 +29,22 @@ backups/
 # IDE
 .idea/
 .vscode/
+
+# 本地工作草稿（不进版本库）
 LOOP.md
 PLAN.md
 SPEC.md
-docs/
 
-# 设计/计划文档（但 README.md 必须进版本库）
+# 设计/计划文档：默认忽略 *.md（本地草稿为主），维护文档显式放行。
+# docs/ 必须先整体放行再放行其中的 *.md——git 不会进入被整体忽略的目录。
 *.md
 !README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!MAINTAINING.md
+!EXEC-PLAN.md
+!docs/
+!docs/**/*.md
 
 # Windows binaries
 /wb2api.exe
