@@ -1,6 +1,8 @@
 // tool_pairing.go 出站请求体的孤儿 tool_call↔tool 配对清理 + tool 结果块重排
 // （吸收参考仓库 sse.ts:91-123 resolveToolPairing 语义，适配网关的 OpenAI wire 消息形态）。
 //
+// 原始文档不可得（参考仓库源码从未入库），本文件结论已落库：docs/protocol/wire-expectations.md §4。
+//
 // 背景：OpenAI 兼容协议要求带 tool_calls 的 assistant 消息，其每一个 tool_call id
 // 都必须有对应的一条 role:tool 结果消息；反之 role:tool 消息也必须有对应的前置
 // tool_call。缺任一侧，上游都会以 HTTP 400 拒绝整个请求。

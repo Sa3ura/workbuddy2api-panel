@@ -23,7 +23,7 @@
 | 11 | WAF 403 拦的是**网关出口 IP** 而非账号（换号无效），需换出口 | `server/wafip.go:3`（原 `fork-scan-absorb T-1`） | L0 | 观测型：连续 403 时比对 IP/账号维度 | 🟡 **头族部分已校准（2026-10-22）**：四类头族完整导出且 8 探针全绿＝头被接受；**WAF 按 IP 拦截本身未复现**（无 403 样本）。见 `headers.md` §6 |
 | 12 | global 新号需先完成注册地区（`login/register/user/complete`）才可激活 trial，否则 chat 报 `14017` | `upstream/global_register.go:3` | L2 | `doctor:account` + 一次 trial 领取 | ⬜ B |
 | 13 | 错误码语义：`11101`/`11102`/`11158`/`12153`/`14017`/`14051`/`10001` | `upstream/client.go`、`hint.go`、README 错误分类表 | L0/L1 | 被动观测 + `doctor` 分类断言 | ⬜ B |
-| 14 | 流是被截断时 `tool_calls.arguments` 为半截 JSON，须丢弃而非补 `{}` | `upstream/truncation.go` | L1 | 已有单测覆盖语义；上游行为属推测 | ⬜ B |
+| 14 | 流被截断时 `tool_calls.arguments` 为半截 JSON，须丢弃而非补 `{}` | `upstream/truncation.go` | L1 | 已有单测覆盖语义 | 🟡 **语义已锁定（2026-10-22）**：`isTruncatedArguments` 三态（非空不可解析=截断 / 空串=合法 / 能解析但类型错=交给客户端）有测试；**上游是否真会在 EOF 处产生半截参数属观测事实，未单独复现**。见 `wire-expectations.md` §5 |
 | 15 | `glm-5v-turbo` / `kimi-k2.7` / `kimi-k2.6` 的 `credits` 解析为字面量 `credits`（不是 `x0.xx`） | 2026-10-22 `doctor -models` 实测 | L1（保底倍率判据退化） | 下次 `-models` 复核是否持续 | 🟡 观察中（持续则扩展解析，见 `model-catalog.md` §5.1） |
 
 ## 校准规则

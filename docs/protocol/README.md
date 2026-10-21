@@ -78,8 +78,8 @@
 | `model-catalog.md` | **A** | ✅ **已校准**（2026-10-22 `doctor -models`：22 模型全表 + 档位/倍率/促销实测） |
 | `thinking-effort.md` | **A**（形态）/ B（行为） | ✅ **已校准形态**（档位枚举与每模型默认档实测；注入/降级为代码实现） |
 | `school-mp.md` | — | ⬜ 待建 |
-| `wire-expectations.md` | — | ⬜ 待建 |
-| `risk-control.md` | — | ⬜ 待建 |
+| `wire-expectations.md` | **A** | ✅ **已锁定**（2026-10-22：90+ 测试逐条锚定 SSE/DSML/tool 配对/截断语义，测试名即证据） |
+| `risk-control.md` | — | 🟡 部分并入 `headers.md` §6（风控信号表）；WAF/IP 维度待建 |
 | `global-trial.md` | — | ⬜ 待建 |
 | `perf-baseline.md` | — | ⬜ 待建（优先级最低） |
 
