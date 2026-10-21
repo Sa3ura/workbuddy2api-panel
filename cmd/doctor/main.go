@@ -1,0 +1,245 @@
+// Command doctor 上游协议漂移探针（只读）。
+//
+// 用途：定期检查网关依赖的上游端点是否仍然"长成预期样子"，把「上游悄悄改协议 →
+// 用户报错 → 现场逆向」反转成「探针告警 → 按需修」。设计说明见 EXEC-PLAN.md P3、
+// 判定规则见 internal/upstream/probe.go 文件头。
+//
+// 只读保证：默认探针集不含任何写操作（不签到 / 不领奖 / 不上报 / 不建会话 / 不刷新
+// token），可随时随地被任何人跑，不消耗积分、不改变账号状态。唯一花积分的是
+// `-chat`（显式开启才跑）。
+//
+// 用法：
+//
+//	go run ./cmd/doctor -config config.json           # 人类可读表
+//	go run ./cmd/doctor -config config.json -json     # 机读
+//	go run ./cmd/doctor -account <uid>                # 只查一个号
+//	go run ./cmd/doctor -chat                         # 追加对话探针（花积分）
+//
+// 退出码：0 全绿 / 1 有黄 / 2 有红（便于宿主 cron、告警接入）。
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/logfmt"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
+)
+
+// doctorConfig 是 config.json 中 doctor 关心的最小子集。
+//
+// 为什么在这里重复定义而不复用 cmd/server/config.go：那是 package main，无法被导入。
+// 为诊断工具把整个 server 配置层拆成独立包，收益不抵风险（会牵动装配期字段与
+// 30k 行配置测试）。这里只读、不写配置，字段缺失一律回落默认值——**不与 server 争
+// 装配权**，只对齐影响到「探针发出什么样请求」的那几个字段（UA / 版本 / 超时 / 域）。
+type doctorConfig struct {
+	AuthDir string `json:"auth_dir"`
+	Global  struct {
+		Enabled     *bool  `json:"enabled"`
+		ChatBase    string `json:"chat_base"`
+		BillingBase string `json:"billing_base"`
+	} `json:"global"`
+	CN struct {
+		ChatBase string `json:"chat_base"`
+	} `json:"cn"`
+	Upstream struct {
+		TimeoutSeconds int    `json:"timeout_seconds"`
+		UserAgent      string `json:"user_agent"`
+		ClientVersion  string `json:"client_version"`
+		CliVersion     string `json:"cli_version"`
+	} `json:"upstream"`
+}
+
+func main() {
+	var (
+		cfgPath  = flag.String("config", "config.json", "配置文件路径（缺失时用默认值）")
+		authDir  = flag.String("auth-dir", "", "凭证目录（默认取配置的 auth_dir，再回落 ./auths）")
+		uid      = flag.String("account", "", "只检查指定 uid")
+		asJSON   = flag.Bool("json", false, "输出 JSON（默认人类可读表）")
+		outPath  = flag.String("out", "data/upstream_health.json", "健康报告落盘路径（空 = 不落盘）")
+		withChat = flag.Bool("chat", false, "追加对话探针（**消耗积分**，默认不跑）")
+		timeout  = flag.Duration("timeout", 90*time.Second, "整体超时")
+	)
+	flag.Parse()
+
+	cfg := loadConfig(*cfgPath)
+	dir := *authDir
+	if dir == "" {
+		dir = cfg.AuthDir
+	}
+	if dir == "" {
+		dir = "./auths"
+	}
+
+	accounts, err := auth.LoadDir(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取凭证目录失败 %s: %v\n", dir, err)
+		os.Exit(2)
+	}
+	if len(accounts) == 0 {
+		fmt.Fprintf(os.Stderr, "凭证目录 %s 里没有账号（auths/workbuddy-<uid>.json）\n", dir)
+		os.Exit(2)
+	}
+	if *uid != "" {
+		filtered := accounts[:0]
+		for _, a := range accounts {
+			if a != nil && a.UID == *uid {
+				filtered = append(filtered, a)
+			}
+		}
+		if len(filtered) == 0 {
+			fmt.Fprintf(os.Stderr, "找不到 uid=%s\n", *uid)
+			os.Exit(2)
+		}
+		accounts = filtered
+	}
+
+	client := buildClient(cfg, *timeout)
+
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+
+	rep := upstream.RunHealthReport(ctx, client, accounts, *withChat, appVersion)
+
+	if *outPath != "" {
+		writeReport(*outPath, rep)
+	}
+
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(rep)
+	} else {
+		printTable(rep)
+	}
+
+	os.Exit(rep.ExitCode())
+}
+
+// appVersion 与 server 版本解耦：探针报告的版本号用于对照「哪版网关依赖了这套协议」。
+const appVersion = "doctor-1"
+
+// loadConfig 读配置；文件不存在或解析失败**不致命**（探针仍可用默认值跑）。
+func loadConfig(path string) doctorConfig {
+	var cfg doctorConfig
+	if path == "" {
+		return cfg
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "提示：未读到 %s（按默认值运行）：%v\n", path, err)
+		return cfg
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "提示：%s 解析失败（按默认值运行）：%v\n", path, err)
+		return doctorConfig{}
+	}
+	return cfg
+}
+
+// buildClient 把配置里影响「出站请求长什么样」的字段贴到 client 上。
+func buildClient(cfg doctorConfig, timeout time.Duration) *upstream.Client {
+	c := upstream.New()
+	if timeout > 0 {
+		c.HTTP.Timeout = timeout // 探针用整体超时，比 server 的短 RPC 上限更保守
+	}
+	c.UserAgent = strings.TrimSpace(cfg.Upstream.UserAgent)
+	c.ClientVersion = strings.TrimSpace(cfg.Upstream.ClientVersion)
+	c.CliVersion = strings.TrimSpace(cfg.Upstream.CliVersion)
+	if cfg.Global.Enabled != nil {
+		c.GlobalEnabled = *cfg.Global.Enabled
+	}
+	// 域覆盖（自建反代 / 灰度域名场景）：与 server 同口径，避免探针打默认域名得出假结论。
+	if v := strings.TrimSpace(cfg.CN.ChatBase); v != "" {
+		c.ChatBaseCN = v
+	}
+	if v := strings.TrimSpace(cfg.Global.ChatBase); v != "" {
+		c.ChatBaseGlobal = v
+	}
+	if v := strings.TrimSpace(cfg.Global.BillingBase); v != "" {
+		c.BillingBaseGlobal = v
+	}
+	return c
+}
+
+// writeReport 原子落盘（先写 tmp 再 rename），供面板只读透传。
+func writeReport(path string, rep *upstream.HealthReport) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "警告：创建目录 %s 失败：%v\n", dir, err)
+			return
+		}
+	}
+	raw, err := json.MarshalIndent(rep, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "警告：序列化健康报告失败：%v\n", err)
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "警告：写入 %s 失败：%v\n", tmp, err)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		fmt.Fprintf(os.Stderr, "警告：替换 %s 失败：%v\n", path, err)
+		_ = os.Remove(tmp)
+	}
+}
+
+// printTable 打印人类可读报告。
+//
+// 采用**竖排**（一账号一节、一探针一行）而不是宽矩阵：探针数会随 P1 档案增长，
+// 矩阵在窄终端（80 列以下）必然折行错位；竖排无论加多少探针都不变形，且红黄项
+// 的 detail / 漂移项有地方写。横向扫读的便利由每行末尾的状态词承担。
+func printTable(rep *upstream.HealthReport) {
+	fmt.Printf("上游健康 %s · %d 个账号 · 绿 %d / 黄 %d / 红 %d · 耗时 %dms\n",
+		rep.GeneratedAt.Format("2006-01-02 15:04:05"), rep.Summary.Accounts,
+		rep.Summary.Green, rep.Summary.Yellow, rep.Summary.Red, rep.DurationMs)
+
+	if len(rep.Accounts) == 0 {
+		fmt.Println("（没有账号）")
+		return
+	}
+
+	for _, acc := range rep.Accounts {
+		tags := acc.Realm
+		if acc.Enterprise {
+			tags += " · 企业版"
+		}
+		fmt.Printf("\n%s [%s] 总评 %s\n", logfmt.UID8(acc.UID), tags, statusBadge(acc.Status))
+		for _, p := range acc.Probes {
+			line := fmt.Sprintf("  %s %s (%dms)", statusBadge(p.Status), p.Name, p.LatencyMs)
+			if p.Costy {
+				line += " [花积分]"
+			}
+			if p.Detail != "" && (p.Status != upstream.ProbeGreen || p.Name == "tasks" || p.Name == "models") {
+				line += "  " + p.Detail
+			}
+			fmt.Println(line)
+			if len(p.Drift) > 0 {
+				fmt.Printf("      漂移项: %s\n", strings.Join(p.Drift, ", "))
+			}
+		}
+	}
+}
+
+// statusBadge 把状态渲染成一致宽度的标记，方便肉眼扫。
+func statusBadge(status string) string {
+	switch status {
+	case upstream.ProbeGreen:
+		return "green "
+	case upstream.ProbeYellow:
+		return "yellow"
+	case upstream.ProbeRed:
+		return "red   "
+	default:
+		return status
+	}
+}

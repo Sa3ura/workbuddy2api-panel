@@ -133,6 +133,30 @@ tag: v1.13.0-maintain-base
 
 ## P3 漂移探针 `doctor`（2-3 天，**核心交付**）
 
+> **状态：v1 已交付（2026-10-22）** —— `internal/upstream/probe.go` + `cmd/doctor` + 11 个契约测试，
+> `go build` / `go vet` / `go test` 全绿。剩余：面板透传（P3-3b）、定时跑（P3-3d）、真实账号校准（P1-5）。
+>
+> 跑法（只读、不花积分、不动账号状态）：
+>
+> ```powershell
+> go run ./cmd/doctor -config config.json                    # 竖排报告
+> go run ./cmd/doctor -config config.json -json              # 机读
+> go run ./cmd/doctor -account <uid> -out ''                 # 单号、不落盘
+> go run ./cmd/doctor -chat                                  # 追加对话探针（花积分）
+> ```
+>
+> 退出码 0 全绿 / 1 有黄 / 2 有红；默认落盘 `data/upstream_health.json`。
+>
+> **执行期两个实测发现**：
+> 1. `models` 探针走 `/v3/config`，**无效 token 也能拿到 19 个模型**——所以它判绿只说明"目录形状没变"，
+>    不能当"账号可用"；账号可用性看 `account` 探针。已写进 `probeModels` 注释。
+> 2. 上游 401/403 返回整页 APISIX WAF HTML，原样进报告会打乱布局——已在 `truncateForProbe` 里
+>    剥标签 + 压单行 + 截断 120 字符。
+>
+> 判级与豁免口径（写死在测试里，改口径先改测试）：业务 `code != 0` → 红；5xx → 红；
+> 个人号 403 → 红；**企业版 403 / 400 code 10001 → 绿（预期，避免每天假告警）**；
+> 老任务码交集 < 60% → 黄；任务列表空 → 黄。
+
 目标：把"上游偷偷改协议 → 用户报错 → 现场逆向"反转成"探针告警 → 按需修"。
 
 ### P3-1 探针定义（`internal/upstream/probe.go`）
