@@ -89,17 +89,31 @@ tag: v1.13.0-maintain-base
 
 ---
 
-## P1 知识资产抢救（1-2 天，**最高优先**）
+## P1 知识资产（1-2 天，**最高优先**）
+
+> **状态：已核查 → 改为「计划 B：重建」**（2026-10-21）
+>
+> 核查结论：**外部逆向文档从未进入任何仓库，不可找回**。证据（均可复现）：
+> `git log --all --diff-filter=A --name-only` → 除 README 与 `internal/prompt/defaultprompt.md` 无任何 `.md`；
+> `git log --all -- 'docs/*'` → 空；本地无 `data/`；同级副本无 `data/`；磁盘搜索无命中。
+> 原因：`.gitignore` 自建仓起就排除 `docs/` 与「除 README 外的 `*.md`」，这些文档只在原作者本机。
+>
+> 所以 **P1-2「搬入已有文档」不存在了**，改为从代码反向重建。详细清单与流程已落库：
+> `docs/protocol/README.md`（来源分级 + 13 类待重建材料 + 流程）、`docs/protocol/UNVERIFIED.md`（14 条待验证断言）。
+>
+> **连带影响：P3 与 P1 的关系从「先后」变成「互相校准」**——没有原始文档，探针就是唯一的 ground truth。
+> P1 出草稿（B 级），P3 出证据（A 级）。执行顺序建议：P1 骨架 → P3 探针 → 回填档案。
 
 | # | 任务 | 具体做法 | 验收 |
 |---|---|---|---|
-| P1-1 | 建目录骨架 | `docs/protocol/{TEMPLATE.md, chat.md, growth-tasks.md, desktop-events.md, headers.md, search.md}` | 目录结构存在 |
-| P1-2 | 搬入已有文档 | 把本地 `data/desktop-task-protocol.md`、`ANALYSIS-*.md`、`REPORT-active-map.md` 等**脱敏后**复制进 `docs/protocol/` | 文件进 git，`git log --stat` 可见 |
-| P1-3 | 脱敏检查 | 扫描 `accessToken|refreshToken|Bearer|phone|nickname|uid`，逐条确认无真实值（示例值改写为 `REDACTED`） | 见 P1-5 脚本零命中 |
-| P1-4 | 指针 → 内容 | 代码里 30+ 处引用外部文档的注释，先处理高频的：`ctx.md`(8)、`desktop-task-protocol.md`(3)、`buddy-adapter.ts`(3)、`sse.ts`(2)。每条改成"3 行摘要 + 落库文档路径" | 随机抽 5 处注释，其引用的文件在仓库可打开 |
-| P1-5 | 密钥扫描脚本 | `scripts/check_docs_secrets.ps1`（或 `.py`），扫 `docs/` 与 `*.md`，命中即 exit 1 | 故意塞一行假 token → 脚本报错 |
+| ~~P1-2~~ | ~~搬入已有文档~~ | **已撤销**：源文档不可得，改为 `docs/protocol/README.md` §3 的重建流程 | — |
+| P1-1 | 建目录骨架 | `docs/protocol/` + `README.md`（核查结论/分级/待重建清单）+ `TEMPLATE.md` + `UNVERIFIED.md` | ✅ 已完成 |
+| P1-2b | 静态抽取草稿 | 按 `internal/upstream/*.go` 逐文件抽「端点 / 必需头 / 请求体 / 判据 / 错误码 / 失效表现」，全部标 **B 级** | 13 份档案清单至少完成 5 份（优先 `headers.md`、`desktop-events.md`、`growth-report.md`、`model-catalog.md`、`thinking-effort.md`） |
+| P1-3 | 密钥扫描脚本 | `scripts/check_docs_secrets.ps1`（或 `.py`），扫 `docs/` 与 `*.md`，命中 `accessToken`/`refreshToken`/`Bearer`/手机号即 exit 1 | 故意塞一行假 token → 脚本报错 |
+| P1-4 | 指针 → 锚点 | 约 20 处引用外部文档的注释：**保留原指针**（历史证据），同段补一行 `// 原始文档不可得，结论见 docs/protocol/<档案>.md#<锚点>` | 随机抽 5 处，都能跳到仓库内可读的档案 |
+| P1-5 | 校准回填 | P3 探针跑通后，把 B 级标注替换为 `实测 <日期> · doctor:<探针>`（A 级）；被推翻的标 🔴 并记"失效于 <日期>" | `UNVERIFIED.md` 里 ✅ 数量 ≥ 6 |
 
-**为什么要做这一步**（一句话给未来的自己）：代码里 `sse.ts:91-123` 这种引用，是指向**不在仓库里**的文件。作者的机器一旦消失，这些注释就变成无法验证的断言，上游一改你就得从零逆向。
+**为什么要做这一步**（一句话给未来的自己）：代码里 `sse.ts:91-123` 这种引用，指向的是**永久不会出现**的文件。不重建，这些注释就是无法验证的断言；上游一改，你只能从零逆向——而这正是作者停更的原因之一。
 
 **回退**：文档独立目录，删掉即可，不影响代码。
 
