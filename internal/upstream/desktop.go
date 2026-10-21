@@ -1,6 +1,7 @@
 // desktop.go 桌面客户端（WorkBuddy Desktop 5.5.6）行为指纹上报。
 //
 // 来源：2026-09-12 Sunny 抓包实测（data/desktop-task-protocol.md）。桌面端点亮
+// 原始材料不可得；该档案尚未重建（见 docs/protocol/README.md §2 待重建清单）
 // 「需电脑端」类任务的关键不是独立端点，而是同一 POST /v2/report 通道上
 // **不同的客户端指纹**：
 //
@@ -298,6 +299,7 @@ func (c *Client) ReportWebEvent(a *auth.Auth, eventCode, pageURL, elementID, ele
 // 2026-09-12 第五轮：客户端 asar 逆向 + Sunny 真实样本驱动的新判据（三账号实测点亮）。
 // 来源：WorkBuddy.exe 5.5.6 app.asar 渲染层事件枚举/载荷 + 抓包真实专家召唤样本
 // （data/desktop-task-protocol.md §7.3）。
+// 原始材料不可得；该档案尚未重建（见 docs/protocol/README.md §2 待重建清单）
 // ---------------------------------------------------------------------------
 
 // DesktopTemplateUseSequence 构造「使用模板创建任务」事件组（实测 template_5 计数）：

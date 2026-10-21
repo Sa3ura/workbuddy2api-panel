@@ -2,6 +2,7 @@
 // 照抄客户端 chat_request_send 事件形状（含 conversationId/mode/inputLength 等全字段，
 // 勿用最小 3 字段，防上游后续加严）。事件必须带 userId（=账号 uid），缺失则服务端
 // 200 但静默丢弃（实测见 REPORT-active-map.md §2）。
+// 原始材料不可得（从未入版本库）；「上报 200 但静默丢弃」与回读 oracle 见 docs/protocol/growth-report.md §3
 //
 // 一条上报同时点亮 growth 连登 + 解锁 first_buddy 任务（领养前置）。
 // 风控口径：每号每天 1 次即可（activity_hours 单时点），不做多时点高频上报。

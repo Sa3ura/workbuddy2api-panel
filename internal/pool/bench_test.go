@@ -10,6 +10,7 @@ import (
 )
 
 // 本文件为 P 组性能审查的量化基准（go test -bench 可复现），结论见 REVIEW-conflicts-perf.md。
+// 原始材料不可得；P 组性能结论待重建（docs/protocol/README.md §4 清单项 perf-baseline.md）
 
 // benchPool 构建 46 账号的池（对齐生产规模），全部 healthy 且 credits 各不相同。
 func benchPool(b *testing.B) *Pool {

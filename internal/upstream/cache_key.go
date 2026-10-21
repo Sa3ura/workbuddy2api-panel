@@ -1,6 +1,7 @@
 // cache_key.go 注入上游 prompt_cache_key 字段（P0 费用优化）。
 //
 // 逆向实测（buddy-adapter.ts:706-714）：上游服务端支持 prompt_cache_key，
+// 参考仓库源码不可得；prompt_cache_key 收益未复核，见 docs/protocol/UNVERIFIED.md #7
 // 同一段 8k token 前缀：
 //   - 不带 → prompt_cache_hit_tokens=0, credit≈0.34
 //   - 带   → prompt_cache_hit_tokens=7808, credit≈0.02（费用降 ~17×）

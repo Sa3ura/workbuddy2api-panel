@@ -1,6 +1,7 @@
 // school.go 开学季活动（school-season，活动期 2026-09-13 ~ 09-24）纯 API 自动化。
 //
 // 判据（2026-09-13 小程序 MCP 逆向 + 三账号实测，protocol.md §7.11）：
+// 原始材料不可得；小程序口径档案尚未重建（见 docs/protocol/README.md §2）
 //   - share_invite（每日 +100c +1抽奖）：POST /tasks/share-complete {channel:"wechat"}
 //     即点亮——纯前端上报，服务端不校验真实分享回执。本模块的主目标。
 //   - chat_3_times / expert_use：判据绑定小程序原生沙箱会话（e2b runtime），

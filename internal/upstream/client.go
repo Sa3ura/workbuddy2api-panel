@@ -1374,6 +1374,7 @@ func (m dynModelEntry) modelInfo() ModelInfo {
 
 // nonChatModel 判定是否非对话模型（应从模型列表过滤掉）。
 // 来源：harness buddy.ts:547-555。三类规则：
+// 参考仓库源码不可得；模型目录与可见性边界见 docs/protocol/model-catalog.md §6
 //   - id 前缀 nes-/completion-/codewise-：嵌入/补全/代码专用模型，选了报 code=11102。
 //   - maxOutputTokens ≤ 256：tiny 输出非对话模型。
 //   - tags 含生成类标签（图片/视频）：生成模型走各自专用端点，作为对话模型
@@ -1561,6 +1562,7 @@ func (c *Client) fetchEnterpriseModels(a *auth.Auth) ([]ModelInfo, error) {
 	// dynMap 收集模型字段；nonChatModel 过滤在写入 dynMap 前执行，
 	// 确保非对话条目（nes-/completion-/codewise- 前缀、maxOutputTokens≤256、
 	// tags 含 text-to-image）根本不进返回列表（来源：harness buddy.ts:547-555）。
+	// 参考仓库源码不可得；模型目录与可见性边界见 docs/protocol/model-catalog.md §6
 	dynMap := make(map[string]dynModelEntry, len(env.Data.Models))
 	for _, m := range env.Data.Models {
 		if nonChatModel(m.ID, m.MaxOutputTokens, m.Tags) {

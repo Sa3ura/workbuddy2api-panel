@@ -591,6 +591,7 @@ func (s *Scheduler) runActivity(ctx context.Context) {
 
 // checkActivityStreak 上报成功后回读连登天数（只读 oracle，发现静默失败）。
 // 背景：REPORT-active-map.md §2 实测「上报 200 但静默丢弃」（缺 userId 时 progress 不动），
+// 原始材料不可得；streak 回读即「上报是否真生效」的唯一 oracle，见 docs/protocol/growth-report.md §3
 // 上报 200 ≠ streak 计分——需要回读验证闭环。
 // 异常检测口径：days==0 → warn（report OK but streak.days=0 (silent drop?)）；
 // GET 失败 → warn 但不影响主流程（上报本身已成功，按天幂等，不做重试）。

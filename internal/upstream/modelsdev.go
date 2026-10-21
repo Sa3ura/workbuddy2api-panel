@@ -6,6 +6,7 @@
 // 直接返回兜底值，拉到后写 model.json 供下次命中）。
 //
 // 数据源（2026-09-16 逆向，结论详见 .claude/reports/model-json-dynamic.md）：
+// 原始材料不可得；四级查找链见 docs/protocol/model-catalog.md §2
 //   - 官方聚合 JSON 端点 https://models.dev/api.json：~4.7MB 单文档、217 provider、
 //     免鉴权、Cloudflare 托管静态站；
 //   - 无按模型/按 provider 子端点（/z-ai.json 等 302 回 /），「按需」的实现是

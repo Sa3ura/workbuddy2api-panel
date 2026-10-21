@@ -1,5 +1,6 @@
 // model_catalog.go context_length / max_output_tokens 四级查找链 + model.json
 // 本地缓存（任务书 model-json-dynamic）。
+// 原始材料不可得；四级查找链与实测 22 模型全表见 docs/protocol/model-catalog.md §2
 //
 // 查找链（32a3c13 三级 → 四级，上游动态值永远权威不变）：
 //  1. 上游动态值（ModelInfo.ContextWindow/MaxTokens）——权威，永远压过 model.json

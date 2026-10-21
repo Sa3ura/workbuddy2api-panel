@@ -1,6 +1,7 @@
 // global_register.go 国际版（global realm）新账号注册激活与地区完善。
 //
 // 背景（ANALYSIS-workbuddy-client-reverse.md）：新 global 账号需先完成注册地区
+// 原始材料不可得；global trial 档案尚未重建（docs/protocol/README.md §4 清单项 global-trial.md，需 global 账号实测）
 // （/login/register/user/complete 补地区）再调 register 接口激活 Trial，chat 才不报
 // 14017 trial not activated。链路（逆向自 web 注册完善页 RegisterRegion-*.js）：
 //

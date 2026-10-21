@@ -1,6 +1,7 @@
 // context_catalog.go context_length / max_output_tokens 字段级静态兜底知识表。
 //
 // 数据来源四级（model-json-dynamic 任务书；查找链入口在 model_catalog.go 的
+// 原始材料不可得；四级查找链见 docs/protocol/model-catalog.md §2
 // ContextWindowListingV4 / MaxOutputTokensListingV4，本文件是第 2 级）：
 //   - 上游动态值（ModelInfo.ContextWindow/MaxTokens，即 maxInputTokens/maxOutputTokens）权威，优先；
 //   - 本文件静态知识表（远端零值时补齐；model.json 缺失/损坏时的编译期兜底）；

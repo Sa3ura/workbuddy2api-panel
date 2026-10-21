@@ -1,8 +1,10 @@
 // transport.go 出站 Transport 构造的单一事实来源（连接层加固，吸收 kongjianguan
 // 4 连击实测经验的前三件，见 .claude/reports/fork-scan-absorb.md T-2）：
+// 原始材料不可得；传输层 4 连击结论待重建，风控信号见 docs/protocol/headers.md §6
 // 真正禁 h2 / TLS 握手超时 / 短 keepalive 探测，全参数集中定义可测试可调整。
 // 第四件 DisableKeepAlives 按报告 trade-off 不吸收（每请求 TLS 握手开销与连接
 // 复用意图相反），分析见 .claude/reports/transport-hardening.md。
+// 原始材料不可得；传输层加固结论待重建（docs/protocol/README.md §4 清单项 risk-control.md）
 package upstream
 
 import (

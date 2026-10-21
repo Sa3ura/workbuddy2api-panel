@@ -1,12 +1,15 @@
 // effort_catalog.go 推理档位（reasoning effort）产品级静态兜底表。
 //
 // 数据来源三级（吸收参考仓库 reconcileWithFallback/buddy-adapter.ts:499-523 语义）：
+// 参考仓库源码不可得；档位枚举与实测分布见 docs/protocol/thinking-effort.md §1-§2
 //   - 远端 FetchModels / global 探测已解析的 supportedEfforts/defaultEffort 桶（权威，优先）；
 //   - 本文件按 realm 分开的产品级静态兜底表（远端缺失时补齐）；
 //   - 两者皆无 → 不在 /v1/models 输出 effort 字段（omitted，不是空数组）。
 //
 // 档位值照抄参考仓库 dsh-codearts：CN/CodeBuddy 面取 src/product.ts CODEBUDDY_FALLBACK_MODELS
+// 参考仓库源码不可得；各模型默认档实测值见 docs/protocol/thinking-effort.md §2
 // ∪ src/buddy-adapter.ts:126-137 REASONING_EFFORTS；global/WorkBuddy 面取 src/product.ts
+// 参考仓库源码不可得；档位枚举与实测分布见 docs/protocol/thinking-effort.md §1-§2
 // WORKBUDDY_FALLBACK_MODELS。两个 realm 对同一模型给出不同档位（如 deepseek-v4.1-flash：
 // CN 三档 ['low','high','max']、global 仅 ['high']），故**按 realm 分表**，绝不混用。
 //
@@ -22,6 +25,7 @@ type effortCap struct {
 
 // cnEffortFallback CN / CodeBuddy 面静态兜底表。
 // 三档模型 defaultEffort 均为 high（product.ts CODEBUDDY_FALLBACK_MODELS 逐条 defaultReasoningEffort）。
+// 参考仓库源码不可得；各模型默认档实测值见 docs/protocol/thinking-effort.md §2
 var cnEffortFallback = map[string]effortCap{
 	"deepseek-v4-flash":   {efforts: []string{"low", "high", "max"}},
 	"deepseek-v4.1-flash": {efforts: []string{"low", "high", "max"}, defaultEffort: "high"},
@@ -43,6 +47,7 @@ var cnEffortFallback = map[string]effortCap{
 
 // globalEffortFallback global / WorkBuddy 国际版面静态兜底表。
 // 注意 deepseek-v4.1-flash 在国际版**只有 ['high']**（product.ts:190 实测 IDE 缓存），
+// 参考仓库源码不可得；各模型默认档实测值见 docs/protocol/thinking-effort.md §2
 // 与 CN 面的三档刻意不同——往 WorkBuddy 上游发 low/max 是非法参数 400。
 var globalEffortFallback = map[string]effortCap{
 	"fast-model":          {efforts: []string{"medium"}},

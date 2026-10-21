@@ -2,6 +2,7 @@
 //
 // 设计依据：上游 scripts/task_*.py 实测结论 + 2026-09-12 桌面指纹协议逆向
 // （data/desktop-task-protocol.md）——
+// 原始材料不可得；该档案尚未重建（见 docs/protocol/README.md §2 待重建清单）
 //   - first_buddy（+300 分）：report（前置解锁）→ agreement → buddy/first
 //   - chat_5（+100 分）：累计 5 条 chat_request_send 上报
 //   - Model_chat_GLM5.2（+100 分）：accept → 用 glm-5.2 真实对话一次 → 上报（模型字段对齐）

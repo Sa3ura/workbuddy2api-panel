@@ -20,7 +20,7 @@ GOFMT    ?= gofmt
 LDFLAGS  := -s -w
 VERSION  := $(shell grep -oP 'appVersion = "\K[^"]+' cmd/server/main.go 2>/dev/null || echo unknown)
 
-.PHONY: all build test vet fmt-check check race vuln version clean help
+.PHONY: all build test vet fmt-check check race vuln version docs-refs clean help
 
 all: build
 
@@ -60,6 +60,10 @@ check: fmt-check vet test
 
 version:
 	@echo $(VERSION)
+
+# 协议引用守卫：代码里指向外部材料的注释必须带 docs/protocol/ 锚点
+docs-refs:
+	@python scripts/check_protocol_refs.py
 
 clean:
 	rm -rf $(BIN_DIR)

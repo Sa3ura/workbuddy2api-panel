@@ -92,6 +92,7 @@ func TestClassify(t *testing.T) {
 		// 429 + 11102 → 限流语义（ErrSoftRate），不是模型不存在。
 		{429, `{"code":11102,"msg":"service info not found"}`, ErrSoftRate},
 		// 429 + 余额措辞 → 限流语义（fork-scan-absorb T-3，本次修复点）：限流响应
+		// 原始材料不可得；429+余额措辞的分类语义见 docs/protocol/UNVERIFIED.md #13
 		// body 高频携带 "quota exceeded"/"额度不足" 等跨计费/限流两界的措辞，
 		// hardRule 在 429 之前会误判 ErrHardCredit 硬冷却到次日 04:00，白扔号约 12h。
 		// 状态码是比关键词更权威的信号：真余额耗尽走 402，非 429 的 quota 措辞

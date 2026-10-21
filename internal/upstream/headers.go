@@ -1,5 +1,6 @@
 // Package headers 构造三类上游请求头（common / chat / billing / refresh）。
 // 规则来自 docs/api-reference.md §0/§4/§6。
+// 原始材料不可得；四类头族完整实测清单见 docs/protocol/headers.md §2
 package upstream
 
 import (
@@ -242,6 +243,7 @@ func (c *Client) ChatHeaders(req *http.Request, a *auth.Auth, clientIP string, m
 
 // injectGlobalChatHeaders global 账号（无企业 ID）的 chat 专属声明头，对齐 intl 项目
 // （ANALYSIS-global-chat-solutions.md）：
+// 原始材料不可得；global 与 cn 的头族差异见 docs/protocol/headers.md §2
 //   - X-No-Enterprise-Id: 1  个人账号无企业 ID，显式声明（避免上游按缺省/可疑判定）
 //   - X-Domain: www.workbuddy.ai  显式声明国际版域（与 Origin/Referer 同域）
 //
