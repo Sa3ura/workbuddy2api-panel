@@ -247,6 +247,12 @@ func main() {
 	case cfg.TaskSweepInterval > 0:
 		log.Printf("任务补领清扫：每 %s（补领已达标未领的成长任务奖励）", cfg.TaskSweepInterval)
 	}
+	switch {
+	case !cfg.Schedule.HealthCheckEnabled:
+		log.Printf("上游健康巡检已禁用（schedule.health_check_enabled=false）")
+	case cfg.HealthCheckInterval > 0:
+		log.Printf("上游健康巡检：每 %s（只读漂移探针，结论落 data/upstream_health.json）", cfg.HealthCheckInterval)
+	}
 	if cfg.Schedule.IncludeDisabledInTasks {
 		log.Printf("保号任务覆盖禁用账号（schedule.include_disabled_in_tasks=true）：禁用号仍签到 / 活跃 / 保活 / 刷新余额，但不参与选号")
 	}
@@ -307,7 +313,9 @@ func main() {
 		Live:        live,
 		// 模型上限探测数据（scripts/probe_max_tokens.py --panel-out 写入）：
 		// 与 state 文件同目录，缺省 data/output_probes.json。
-		ProbeFile:  stateSibling(cfg.StateFile, "output_probes.json"),
+		ProbeFile: stateSibling(cfg.StateFile, "output_probes.json"),
+		// 上游健康巡检报告（RunHealthCheckOnce / cmd/doctor 原子写入）：同 state 目录。
+		HealthFile: stateSibling(cfg.StateFile, "upstream_health.json"),
 		ConfigPath: *cfgPath,
 		LoadConfig: func() (any, error) {
 			return Load(*cfgPath)
@@ -324,6 +332,8 @@ func main() {
 	// 清扫回调返回统计汇总（测试/日志可观测），调度器 hook 只要求 func()：
 	// 这里收掉返回值——汇总已由 panel 侧内部日志输出。
 	sch.SetTaskSweepHook(func() { pn.RunTaskSweepOnce() })
+	// 上游健康巡检（P3 漂移探针）：只读、不花积分、不参与任何决策，结论写面板「任务」频道日志。
+	sch.SetHealthCheckHook(func() { pn.RunHealthCheckOnce() })
 	log.SetOutput(io.MultiWriter(os.Stderr, pn.Logs()))
 	server.SetChatLogOutput(io.MultiWriter(os.Stdout, pn.Logs()))
 
@@ -356,6 +366,7 @@ func main() {
 	go sch.Run(ctx)
 	sch.StartBalanceRefresh(ctx, cfg.BalanceRefreshInterval)
 	sch.StartTaskSweep(ctx, cfg.TaskSweepInterval)
+	sch.StartHealthCheck(ctx, cfg.HealthCheckInterval)
 
 	// 启动即预热模型积分倍率表：倍率只在 FetchModels/FetchGlobalModelInfos 成功时
 	// 填充（两者均懒触发），重启后到首次 /v1/models 或面板模型页被访问之前，
@@ -548,6 +559,7 @@ func saveConfig(raw []byte, path string, live *livecfg.Holder, p *pool.Pool, up 
 		!newCfg.Schedule.GrowthEnabled)
 	sch.SetBalanceInterval(newCfg.BalanceRefreshInterval)
 	sch.SetTaskSweepInterval(newCfg.TaskSweepInterval)
+	sch.SetHealthCheckInterval(newCfg.HealthCheckInterval)
 	sch.SetIncludeDisabledInTasks(newCfg.Schedule.IncludeDisabledInTasks)
 
 	return restartRequiredFields(newCfg), nil

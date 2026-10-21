@@ -32,19 +32,26 @@ var taskPrefixes = []string{
 	"school ", "streak-bonus ", "travel ", "blackcat ", "lottery ",
 	"checkin ", "activity ", "keepalive ", "balance ", "user-resource ",
 	"panel: 任务", "panel: 一键", "panel: checkin", "panel: 手动",
-	"panel: 队列", "panel: 券码",
+	"panel: 队列", "panel: 券码", "panel: 上游健康",
 }
 
 // tsPrefixRe log 包默认 flags（日期 时间）产生的行首时间戳。
 var tsPrefixRe = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} `)
+
+// levelPrefixRe 日志级别前缀 + 方括号组件标签（WARN: [panel] …）。
+//
+// 为什么需要剥：任务类告警常写成 `WARN: [panel] panel: 上游健康 …`——级别前缀挡在
+// 行首会让前缀匹配失效，本该进「任务」频道的告警被丢进「系统」频道，任务视图里看不见。
+var levelPrefixRe = regexp.MustCompile(`^(?:WARN|ERROR|INFO|DEBUG|FATAL):\s*(?:\[[^\]]*\]\s*)?`)
 
 // classifyLine 按行首特征归类频道。
 func classifyLine(line string) string {
 	if strings.HasPrefix(line, "| #") { // chat 表格日志（server/logging.go logChatRow）
 		return ChChat
 	}
+	body := levelPrefixRe.ReplaceAllString(line, "")
 	for _, p := range taskPrefixes {
-		if strings.HasPrefix(line, p) {
+		if strings.HasPrefix(line, p) || strings.HasPrefix(body, p) {
 			return ChTask
 		}
 	}

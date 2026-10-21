@@ -134,7 +134,7 @@ tag: v1.13.0-maintain-base
 ## P3 漂移探针 `doctor`（2-3 天，**核心交付**）
 
 > **状态：v1 已交付（2026-10-22）** —— `internal/upstream/probe.go` + `cmd/doctor` + 11 个契约测试，
-> `go build` / `go vet` / `go test` 全绿。剩余：面板透传（P3-3b）、定时跑（P3-3d）、真实账号校准（P1-5）。
+> `go build` / `go vet` / `go test` 全绿。剩余：面板前端卡片（P3-3c）、真实账号校准（P1-5）。**P3-3b/3d 已完成（2026-10-22）**：面板 `GET /panel/api/upstream_health` + 每 6h 自动巡检。
 >
 > 跑法（只读、不花积分、不动账号状态）：
 >
@@ -197,9 +197,9 @@ go run ./cmd/doctor -offline                       # 只校验本地配置/文�
 | # | 任务 | 做法 | 验收 |
 |---|---|---|---|
 | P3-3a | 输出文件 | 写 `data/upstream_health.json`（同 `output_probes.json` 的位置约定） | 文件生成，含 `generated_at` 与逐账号逐探针状态 |
-| P3-3b | 面板只读透传 | 抄 `Panel.Options.ProbeFile` + `GET /panel/api/model_probes` 的模式：新增 `HealthFile` 字段 + `GET /panel/api/upstream_health`（`panel.go:193` 附近一行注册） | `curl` 带 key 能拿到 JSON |
-| P3-3c | 前端（可延后） | 账号池顶部一行「上游健康：绿 8 / 黄 2 / 红 0」+ 点开详情。**建议先用 API + 日志，前端等 P5 之后** | — |
-| P3-3d | 定时跑 | **推荐**：`cmd/server/main.go` 里加一个独立 ticker goroutine（约 30 行），不进调度器。理由：新 `taskKind` 会牵动 `nextWake`/`runBatch`/`Reconfigure` 与 3 处配置测试，成本 +1 天且污染既有枚举 | 重启后每日自动生成一份 health 文件 |
+| P3-3b | 面板只读透传 | 照 `ProbeFile` + `GET /panel/api/model_probes` 的模式：新增 `HealthFile` 字段 + `GET /panel/api/upstream_health` | ✅ 已完成（`internal/panel/health.go` + 4 个测试；端到端冒烟：接口 200 / 无 key 401 / 报告中转正确） |
+| P3-3c | 前端（可延后） | 账号池顶部一行「上游健康：绿 8 / 黄 2 / 红 0」+ 点开详情 | ⬜ 未做（API 已就绪，随时可接） |
+| P3-3d | 定时跑 | 复用 scheduler 同构 ticker（`StartHealthCheck`/`SetHealthCheckInterval`/`HealthCheckHook`），**不碰 `taskKind` 枚举**；配置 `schedule.health_check_enabled` / `health_check_minutes`（缺省 6h），面板保存热生效 | ✅ 已完成 |
 
 ### P3-4 测试
 

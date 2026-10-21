@@ -35,6 +35,10 @@
     "blackcat_enabled": true,
     "balance_refresh_enabled": true,
     "balance_refresh_minutes": 5,
+    "task_sweep_enabled": true,
+    "task_sweep_minutes": 15,
+    "health_check_enabled": true,
+    "health_check_minutes": 360,
     "include_disabled_in_tasks": false
   },
   "global": {

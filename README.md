@@ -397,6 +397,8 @@ curl -s http://localhost:7863/v1/search/messages \
 | `schedule.activity_enabled` | `true` | 活跃上报总开关 |
 | `schedule.keepalive_enabled` | `true` | token 保活总开关 |
 | `schedule.blackcat_enabled` | `true` | 夜猫子总开关 |
+| `schedule.health_check_enabled` | `true` | 上游健康巡检总开关（P3 漂移探针）：周期对全部账号跑**只读**探针（不签到/不领奖/不上报/不建会话/不刷 token，默认不含花积分项），校验上游端点是否还长成预期样子，结论落 `data/upstream_health.json` 并写面板「任务」频道日志；黄/红即代表上游协议可能已变 |
+| `schedule.health_check_minutes` | `360` | 巡检间隔（分钟，缺省 6h，`<=0` 回落 360）。只读探针无资源消耗，可压到小时级；`0` 不等于关闭，关闭请用 `health_check_enabled=false` |
 | `schedule.include_disabled_in_tasks` | `false` | 让**保号类**四任务（签到 / 活跃上报 / token 保活 / 余额刷新）对**已禁用**账号也执行——「禁用」只关选号，不停保号。`false`（默认）保持「禁用的跳过」 |
 | `upstream.timeout_seconds` | `120` | 短 RPC（刷新 / 签到 / 余额 / 模型列表）总时长上限 |
 | `upstream.header_timeout_seconds` | 回落 `timeout_seconds` | 聊天首字节前（响应头）上限 |
@@ -773,7 +775,7 @@ http://127.0.0.1:7863/panel/
 
 | 分组 | 端点 |
 |---|---|
-| 只读 | `GET overview` · `GET usage`（`hours` 或 `from`/`to`）· `GET packages` · `GET models` · `GET model_probes` · `GET logs` · `GET request_metrics` · `GET request_logs`（`limit` / `outcome` / `account` / `model` / `client_ip` / `user_agent` / `from` / `to`）· `GET config` · `GET tasks/queue` · `GET school/vouchers` |
+| 只读 | `GET overview` · `GET usage`（`hours` 或 `from`/`to`）· `GET packages` · `GET models` · `GET model_probes` · `GET upstream_health` · `GET logs` · `GET request_metrics` · `GET request_logs`（`limit` / `outcome` / `account` / `model` / `client_ip` / `user_agent` / `from` / `to`）· `GET config` · `GET tasks/queue` · `GET school/vouchers` |
 | 账号运维 | `POST accounts/{uid}/checkin` · `balance` · `revive` · `disable` · `remove`；`POST checkin_all` · `travel_all` · `activity_all` · `keepalive_all` · `balance_all` |
 | 补偿 | `GET compensation`（逐号查补偿状态，**只读**）；`POST accounts/{uid}/compensation`（单号领）；`POST compensation_all`（全量领，返回 `summary{claimed,skipped,errored,credit}`——**先看 `errored` 再看 `claimed`**，否则会把「全部查询失败」说成「没有待领补偿」） |
 | 任务 | `GET accounts/{uid}/tasks`；`POST accounts/{uid}/tasks/accept` · `accept_all` · `claim` · `auto` · `auto_all`；`POST tasks/scan_all` · `tasks/run_queue` |
@@ -894,6 +896,8 @@ http://127.0.0.1:7863/panel/
 | `./credit.sh` / `./credit.sh -json` | 积分日报（美化 / 原始 JSON） |
 | `python3 scripts/probe_active.py` | 活跃上报手动诊断 / 补跑（probe=只读 / report=单号上报 / unlock=单号领猫 / ALL=全池；写操作默认 dry-run，需 `--yes`） |
 | `python3 scripts/probe_max_tokens.py` | 探测各模型**真实输出上限**（区分静默钳制与模型主动收尾），`--panel-out` 结果可直接进面板展示（见下节） |
+| `go run ./cmd/doctor` | **上游健康巡检**（只读漂移探针）：`-json` 机读 · `-account <uid>` 单号 · `-keys` 导出端点键位骨架（重建协议档案用）· `-chat` 加花积分的对话探针。退出码 0 绿 / 1 黄 / 2 红，可接 cron 告警 |
+| `go run ./cmd/compensation` | **限时补偿领取**：默认 dry-run 只查（列出待领额度与截止倒计时），`-yes` 才真领；企业版自动跳过 |
 
 二进制不在 git 中：脚本首次使用自动 `go build` 对应 `cmd/*`（Docker 镜像内已预编译）。
 

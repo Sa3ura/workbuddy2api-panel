@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -513,6 +515,29 @@ func stripHTMLTags(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// SaveHealthReport 原子落盘健康报告（tmp + rename），供 cmd/doctor 与面板定时巡检共用。
+// 面板只读透传该文件，不需要理解字段语义。
+func SaveHealthReport(path string, rep *HealthReport) error {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+	}
+	raw, err := json.MarshalIndent(rep, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename %s: %w", path, err)
+	}
+	return nil
 }
 
 // ---------- 键位骨架（P1 档案重建的证据工具） ----------

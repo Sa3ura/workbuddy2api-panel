@@ -66,6 +66,14 @@ type Config struct {
 	// 的任务奖励领掉，不跑任何行为链路）。与 GrowthHook 同款延迟挂载；nil 时
 	// ticker 到点跳过。见 issue #174：成长队列与「一键完成」都不负责这条补领链路。
 	TaskSweepHook func()
+
+	// HealthCheckHook 上游健康巡检回调（panel.RunHealthCheckOnce：只读跑一轮漂移探针，
+	// 落盘 data/upstream_health.json 并写面板「任务」频道日志）。与 GrowthHook 同款
+	// 延迟挂载；nil 时 ticker 到点跳过。
+	//
+	// 为什么挂在 scheduler 而不是单独起 goroutine：这里已有「周期 + 热改间隔 + 退出」的
+	// 完整机制（同 TaskSweep），复用它比自己维护一套 timer 更不容易出竞态与泄漏。
+	HealthCheckHook func()
 }
 
 // Scheduler 调度器。
@@ -84,6 +92,7 @@ type Scheduler struct {
 	rearmSchedule chan struct{}
 	rearmBalance  chan struct{}
 	rearmSweep    chan struct{}
+	rearmHealth   chan struct{}
 
 	// balanceInterval 余额刷新间隔（纳秒，0=暂停）。atomic 读写：执行循环每轮读当前值，
 	// SetBalanceInterval 可任意时刻热改（面板保存配置）。
@@ -92,6 +101,10 @@ type Scheduler struct {
 	// sweepInterval 任务补领清扫间隔（纳秒，0=暂停）。语义同 balanceInterval：
 	// SetTaskSweepInterval 可热改（面板保存配置后下一轮生效）。
 	sweepInterval atomic.Int64
+
+	// healthInterval 上游健康巡检间隔（纳秒，0=暂停）。语义同上：
+	// SetHealthCheckInterval 可热改。巡检本身只读、不花积分，所以间隔可以比养号任务短。
+	healthInterval atomic.Int64
 
 	// lastBalanceRefresh 最近一次后台余额刷新的完成时刻（Unix 纳秒，0=尚未跑过）。
 	// 供面板「到期提醒」标注数据年龄：卡片展示的是这份快照，必须让年龄可读，
@@ -122,6 +135,7 @@ func New(cfg Config) *Scheduler {
 		rearmSchedule: make(chan struct{}, 1),
 		rearmBalance:  make(chan struct{}, 1),
 		rearmSweep:    make(chan struct{}, 1),
+		rearmHealth:   make(chan struct{}, 1),
 	}
 }
 
@@ -792,6 +806,82 @@ func (s *Scheduler) SetTaskSweepHook(fn func()) {
 	s.schedMu.Lock()
 	s.cfg.TaskSweepHook = fn
 	s.schedMu.Unlock()
+}
+
+// StartHealthCheck 启动上游健康巡检循环（只读漂移探针）。
+//
+// 与 StartTaskSweep 同构：间隔可热改（SetHealthCheckInterval）、<=0 暂停并等重排通知、
+// ctx 结束时退出。首轮不立即跑——启动瞬间上游可能还在握手，等一个间隔更稳；
+// 需要立刻看结果时用 RunHealthCheckNow 或命令行 cmd/doctor。
+func (s *Scheduler) StartHealthCheck(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	s.healthInterval.Store(int64(interval))
+	go func() {
+		var logged time.Duration
+		for {
+			cur := time.Duration(s.healthInterval.Load())
+			if cur != logged {
+				log.Printf("scheduler: 上游健康巡检每 %s（暂停中显示 0s）", cur)
+				logged = cur
+			}
+			if cur <= 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-s.rearmHealth:
+					continue
+				}
+			}
+			timer := time.NewTimer(cur)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-s.rearmHealth:
+				timer.Stop() // 间隔已变：立即按新值重算
+			case <-timer.C:
+				s.schedMu.Lock()
+				hook := s.cfg.HealthCheckHook
+				s.schedMu.Unlock()
+				if hook != nil {
+					hook()
+				}
+			}
+		}
+	}()
+}
+
+// RunHealthCheckNow 立刻跑一轮健康巡检（手动触发/测试用）。
+func (s *Scheduler) RunHealthCheckNow() {
+	s.schedMu.Lock()
+	hook := s.cfg.HealthCheckHook
+	s.schedMu.Unlock()
+	if hook != nil {
+		hook()
+	}
+}
+
+// SetHealthCheckHook 挂载/替换健康巡检回调（panel 构造晚于 scheduler，事后接线）。
+func (s *Scheduler) SetHealthCheckHook(fn func()) {
+	s.schedMu.Lock()
+	s.cfg.HealthCheckHook = fn
+	s.schedMu.Unlock()
+}
+
+// SetHealthCheckInterval 热改健康巡检间隔；<=0 表示暂停循环（面板关闭该开关时）。
+func (s *Scheduler) SetHealthCheckInterval(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	s.healthInterval.Store(int64(d))
+	poke(s.rearmHealth)
+}
+
+// HealthInterval 当前健康巡检间隔（0=暂停）。
+func (s *Scheduler) HealthInterval() time.Duration {
+	return time.Duration(s.healthInterval.Load())
 }
 
 // SetTaskSweepInterval 热改任务补领清扫间隔；<=0 表示暂停循环（面板关闭该开关时）。

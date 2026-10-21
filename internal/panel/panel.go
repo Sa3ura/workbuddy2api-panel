@@ -69,6 +69,11 @@ type Config struct {
 	// 写入；空或文件不存在 = model_probes 端点返回空集，面板不显示任何实测标注）。
 	// 只读展示：网关不解析、不依赖其内容做任何路由/出站决策。
 	ProbeFile string
+
+	// HealthFile 上游健康巡检报告文件（由 RunHealthCheckOnce / cmd/doctor 原子写入；
+	// 空或文件不存在 = upstream_health 端点返回 exists:false，前端显示「尚未巡检」）。
+	// 同样只读展示：**巡检结论不参与选号 / 冷却 / 熔断等任何决策**。
+	HealthFile string
 }
 
 // Panel 管理面板 handler。挂载方式：外层 mux Handle("/panel/", panel)，
@@ -191,6 +196,7 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/api/usage", p.withAuth(p.usage))
 	p.mux.HandleFunc("POST /panel/api/usage/save", p.withAuth(p.usageSave))
 	p.mux.HandleFunc("GET /panel/api/model_probes", p.withAuth(p.modelProbes))
+	p.mux.HandleFunc("GET /panel/api/upstream_health", p.withAuth(p.upstreamHealth))
 	p.mux.HandleFunc("GET /panel/api/config", p.withAuth(p.getConfig))
 	p.mux.HandleFunc("POST /panel/api/config", p.withAuth(p.saveConfig))
 	p.mux.HandleFunc("GET /panel/api/compensation", p.withAuth(p.compensation))

@@ -24,7 +24,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -196,27 +195,10 @@ func buildClient(cfg doctorConfig, timeout time.Duration) *upstream.Client {
 	return c
 }
 
-// writeReport 原子落盘（先写 tmp 再 rename），供面板只读透传。
+// writeReport 落盘健康报告（复用 upstream.SaveHealthReport 的原子写，避免与面板各写一套）。
 func writeReport(path string, rep *upstream.HealthReport) {
-	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "警告：创建目录 %s 失败：%v\n", dir, err)
-			return
-		}
-	}
-	raw, err := json.MarshalIndent(rep, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "警告：序列化健康报告失败：%v\n", err)
-		return
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "警告：写入 %s 失败：%v\n", tmp, err)
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		fmt.Fprintf(os.Stderr, "警告：替换 %s 失败：%v\n", path, err)
-		_ = os.Remove(tmp)
+	if err := upstream.SaveHealthReport(path, rep); err != nil {
+		fmt.Fprintf(os.Stderr, "警告：写入健康报告失败：%v\n", err)
 	}
 }
 

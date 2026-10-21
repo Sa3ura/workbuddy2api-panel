@@ -117,6 +117,14 @@ type Config struct {
 		// 只做 accept/claim 两条幂等请求，不跑任何行为链路；分钟级开销可忽略。
 		TaskSweepEnabled bool `json:"task_sweep_enabled"` // 缺省 true；false = 关闭
 		TaskSweepMinutes int  `json:"task_sweep_minutes"` // 缺省 15；<=0 回落 15
+
+		// 上游健康巡检（漂移探针，P3）：周期对全部账号跑一轮**只读**探针，
+		// 校验上游端点是否还长成预期样子，结论落 data/upstream_health.json 并写面板日志。
+		// 目的是把「上游悄悄改协议 → 用户报错 → 现场逆向」反转成「探针告警 → 按需修」。
+		// 探针全部只读（不签到/不领奖/不上报/不建会话/不刷 token）、默认不含花积分项，
+		// 因此可以按小时级频率跑。缺省 360 分钟（6h），把发现时延压到半天内。
+		HealthCheckEnabled bool `json:"health_check_enabled"` // 缺省 true；false = 关闭
+		HealthCheckMinutes int  `json:"health_check_minutes"` // 缺省 360；<=0 回落 360
 	} `json:"schedule"`
 
 	Global struct {
@@ -259,6 +267,7 @@ type Config struct {
 	SessionGCInterval      time.Duration `json:"-"`
 	BalanceRefreshInterval time.Duration `json:"-"` // 0 = 不启动（enabled=false）
 	TaskSweepInterval      time.Duration `json:"-"` // 0 = 不启动（task_sweep_enabled=false）
+	HealthCheckInterval    time.Duration `json:"-"` // 0 = 不启动（health_check_enabled=false）
 	ExpiringSoonDur        time.Duration `json:"-"`
 	// CostExploreIntervalDur 解析后的 costTier 探索窗口（issue #136）；0 = 关停。
 	CostExploreIntervalDur time.Duration `json:"-"`
@@ -302,6 +311,8 @@ func Default() *Config {
 	c.Schedule.BalanceRefreshMinutes = 5
 	c.Schedule.TaskSweepEnabled = true
 	c.Schedule.TaskSweepMinutes = 15
+	c.Schedule.HealthCheckEnabled = true
+	c.Schedule.HealthCheckMinutes = 360
 	c.Upstream.TimeoutSeconds = 120
 	// HeaderTimeoutSeconds/IdleTimeoutSeconds 默认 0（未设置态），回落见 normalize()。
 	c.Upstream.HeaderTimeoutSeconds = 0
@@ -642,6 +653,13 @@ func (c *Config) normalize() error {
 			c.Schedule.TaskSweepMinutes = 15
 		}
 		c.TaskSweepInterval = time.Duration(c.Schedule.TaskSweepMinutes) * time.Minute
+	}
+	// 上游健康巡检：启用时 minutes<=0 回落默认 360（6h）；关闭时 interval 保持 0（不启动）。
+	if c.Schedule.HealthCheckEnabled {
+		if c.Schedule.HealthCheckMinutes <= 0 {
+			c.Schedule.HealthCheckMinutes = 360
+		}
+		c.HealthCheckInterval = time.Duration(c.Schedule.HealthCheckMinutes) * time.Minute
 	}
 	if err := c.validateScheduleHours(); err != nil {
 		return err
