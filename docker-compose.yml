@@ -1,6 +1,11 @@
 services:
   wb2api:
-    build: .
+    build:
+      context: .
+      # 注入 commit：Docker 构建上下文排除了 .git/，镜像里读不到 vcs 信息，
+      # 于是版本串会缺 commit。用 GIT_COMMIT=$(git describe --always --dirty) docker compose build 传入。
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: workbuddy2api
     restart: unless-stopped
     # 容器默认以 app 用户（uid 10001）运行。宿主机挂载目录属主不同会导致

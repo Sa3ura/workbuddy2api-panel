@@ -41,7 +41,13 @@ param(
 
     [string]$GoBin = $env:GBIN,
 
-    [string]$BinDir = 'bin'
+    [string]$BinDir = 'bin',
+
+    # -NoStrip 不剥离符号表（去掉 -s -w）。用途只有一个：本地跑起来验功能。
+    # 为什么需要它：火绒等国产杀软会把「无符号表 + 大体积 + 联网」的 Go 二进制
+    # 启发式判为"代码混淆器"并当场删除 —— 实测 -s -w 产物秒消失，不剥离则正常。
+    # 发布口径（CI / Docker）始终剥离，不要用这个开关产物对外分发。
+    [switch]$NoStrip
 )
 
 $ErrorActionPreference = 'Stop'
@@ -126,23 +132,48 @@ function Test-GoFmt {
     Write-Host 'gofmt: clean（已忽略 CRLF 行尾差异）'
 }
 
+# 取构建 commit（git describe --always --dirty）；拿不到时回落 unknown。
+# 与 Makefile / build.sh / Dockerfile 同口径：注入 -X main.buildCommit，
+# 让二进制能自证"跑的是哪个 commit"（本 fork 的 appVersion 与上游同名，仅靠版本号分不清）。
+function Get-Commit {
+    # git 在规范化行尾时会往 stderr 打 warning；本脚本全局 EAP=Stop，若不临时放宽，
+    # 该 warning 会被当成终止错误吞进 catch，导致 commit 恒为 unknown（已踩过）。
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $c = (& git rev-parse --short HEAD 2>$null)
+        if ($LASTEXITCODE -ne 0 -or -not $c) { return 'unknown' }
+        $c = ([string]$c).Trim()
+        # 工作区有未提交改动时打 -dirty：镜像/二进制能自证"不是干净的发布版"
+        & git diff --quiet 2>$null
+        if ($LASTEXITCODE -ne 0) { $c += '-dirty' }
+        return $c
+    }
+    catch { return 'unknown' }
+    finally { $ErrorActionPreference = $eap }
+}
+
 function Build-All {
     # 顺序与 CI 发布口径一致
     $map = [ordered]@{ 'wb2api' = 'server'; 'signin_bin' = 'signin'; 'login' = 'login'; 'credit' = 'credit' }
     New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+    $commit = Get-Commit
+    $strip = if ($NoStrip) { '' } else { '-s -w ' }
+    $ldflags = "$strip-X main.buildCommit=$commit"
     $prevCgo = $env:CGO_ENABLED
     $env:CGO_ENABLED = '0'
     try {
         foreach ($name in $map.Keys) {
             Write-Host "==> $name  (./cmd/$($map[$name]))"
             $out = Join-Path $BinDir "$name.exe"
-            Invoke-Go @('build', '-trimpath', '-ldflags', '-s -w', '-o', $out, "./cmd/$($map[$name])")
+            Invoke-Go @('build', '-trimpath', '-ldflags', $ldflags, '-o', $out, "./cmd/$($map[$name])")
         }
     }
     finally {
         $env:CGO_ENABLED = $prevCgo
     }
-    Write-Host "built $(Get-AppVersion) -> $BinDir\"
+    $note = if ($NoStrip) { '（未剥离符号：体积更大，仅供本地调试，勿对外分发）' } else { '' }
+    Write-Host "built $(Get-AppVersion)+$commit -> $BinDir\ $note"
 }
 
 Write-Host ("go: {0}  ({1})" -f $script:go, (& $script:go version)) -ForegroundColor DarkGray

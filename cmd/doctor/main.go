@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -138,7 +139,7 @@ func main() {
 		return
 	}
 
-	rep := upstream.RunHealthReport(ctx, client, accounts, *withChat, appVersion)
+	rep := upstream.RunHealthReport(ctx, client, accounts, *withChat, doctorVersion())
 
 	if !reportDisabled(*outPath) {
 		writeReport(*outPath, rep)
@@ -157,6 +158,28 @@ func main() {
 
 // appVersion 与 server 版本解耦：探针报告的版本号用于对照「哪版网关依赖了这套协议」。
 const appVersion = "doctor-1"
+
+// doctorVersion 在版本号后追加构建 commit（读 buildvcs；doctor 是本地工具，不注入 ldflags）。
+// 健康报告会落盘并被面板展示，带上 commit 才能回答"这份报告是哪个构建产出的"。
+// 注意：实测 `go run` 不写 vcs 信息（只显示 doctor-1），要带 commit 请先 `go build` 成二进制。
+func doctorVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return appVersion
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+			c := s.Value[:7]
+			for _, m := range info.Settings {
+				if m.Key == "vcs.modified" && m.Value == "true" {
+					c += "-dirty"
+				}
+			}
+			return appVersion + "+" + c
+		}
+	}
+	return appVersion
+}
 
 // ---------- 头清单取证（docs/protocol/headers.md） ----------
 

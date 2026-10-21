@@ -17,7 +17,9 @@
 GO       ?= go
 BIN_DIR  ?= bin
 GOFMT    ?= gofmt
-LDFLAGS  := -s -w
+COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet 2>/dev/null || echo -dirty)
+STRIP    ?= 1
+LDFLAGS  := $(if $(filter 1,$(STRIP)),-s -w )-X main.buildCommit=$(COMMIT)
 VERSION  := $(shell grep -oP 'appVersion = "\K[^"]+' cmd/server/main.go 2>/dev/null || echo unknown)
 
 .PHONY: all build test vet fmt-check check race vuln version docs-refs docs-secrets ci clean help

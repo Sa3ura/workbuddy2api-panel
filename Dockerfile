@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM golang:1.27-alpine AS build
 WORKDIR /src
+ARG GIT_COMMIT=unknown
 COPY go.mod ./
 # 防止因为直接使用官方源导致下载失败
 RUN go env -w GOPROXY=https://goproxy.cn,direct && \
@@ -8,7 +9,7 @@ RUN go env -w GOPROXY=https://goproxy.cn,direct && \
     go mod download
 COPY . .
 # 一次编译全部二进制（工具进镜像，容器内可直接跑脚本）。全部 -trimpath -s -w。
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/wb2api ./cmd/server \
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.buildCommit=${GIT_COMMIT}" -o /out/wb2api ./cmd/server \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/signin_bin ./cmd/signin \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/login ./cmd/login \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/credit ./cmd/credit

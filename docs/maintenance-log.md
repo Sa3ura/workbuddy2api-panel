@@ -93,6 +93,26 @@ go run ./cmd/doctor                    → 8 探针全绿（真实 cn 号实测�
 
 验证：`check: all green`（新工具链）、`govulncheck` 零漏洞、`staticcheck SA*` 干净、
 全量 `go test ./...` 18 个包全绿。
+### 版本串与环境坑（2026-10-22）
+
+**版本号**：`1.13.0-panel` → **`1.13.1-panel`**。原因是本 fork 的 appVersion 与上游 v1.13.0
+完全相同，部署后无法区分跑的是上游构建还是维护版，排查时抓瞎。
+
+**版本串**：面板 `/panel/api/overview` 的 `version` 现在是 `1.13.1-panel+<commit>`
+（如 `1.13.1-panel+29e5059`，工作区脏时带 `-dirty`）。实现方式：
+- `-X main.buildCommit=…` 由 Makefile / build.sh / build.ps1 / Dockerfile（`ARG GIT_COMMIT`）/ CI 注入；
+- 未注入时回落到 buildvcs 的 `vcs.revision`（本地直接 `go build` 的场景）；
+- 兼容三种输入形态（短 sha / `git describe` 的 `-g<sha>` / 完整 40 位）——只截前 7 位会截出 tag 名。
+- `cmd/doctor` 的报告同样带 commit（`doctor-1+29e5059`）；但**`go run` 不写 vcs 信息**，要 commit 得 `go build`。
+
+**环境坑：火绒把 `-s -w` 产物判为「代码混淆器」并删除。**
+现象极具误导性：`go build` 返回 0、脚本打印 "built ..."，但 `bin\wb2api.exe` **根本不存在**
+（生成瞬间被杀软吃掉），而被链接的另外三个二进制（未 Strip？其实同样 Strip）当时刚好幸存，
+看起来像"只漏编了一个"。
+验证方法：同一源码分别带/不带 `-s -w` 各编一次，带的那份 `Test-Path` 立刻为 False。
+
+处置：加 `-NoStrip`（PowerShell）/ `STRIP=0`（Makefile、build.sh）开关，本地调试用不剥离的产物；
+发布口径（CI / Docker）仍然剥离不变。README「方式三」已写明，并建议把 `bin\` 加进杀软信任区。
 ### P4 记录（2026-10-22）
 
 - **阻塞门禁**：`go test` / `gofmt` / `go vet` / `docs-secrets` / `protocol-refs` / `staticcheck -checks 'SA*'`

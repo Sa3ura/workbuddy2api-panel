@@ -16,7 +16,11 @@ repo=$(pwd)
 
 GO=${GO:-go}
 BIN_DIR=${BIN_DIR:-bin}
-LDFLAGS="-s -w"
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+git diff --quiet 2>/dev/null || COMMIT="$COMMIT-dirty"
+STRIP=${STRIP:-1}
+if [ "$STRIP" = "1" ]; then STRIPFLAGS="-s -w"; else STRIPFLAGS=""; fi
+LDFLAGS="$STRIPFLAGS -X main.buildCommit=$COMMIT"
 
 if [ -z "${GOPROXY:-}" ]; then
   export GOPROXY="https://goproxy.cn,direct"

@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,7 +34,87 @@ import (
 )
 
 // appVersion 网关版本（fork 版：面板 + 任务体系），透出到 /panel/api/overview。
-const appVersion = "1.13.0-panel"
+//
+// ⚠️ 这个常量是 CI 的 tag 断言依据：打 tag 前必须先改这里，且 tag（去掉 -panel 后缀）必须等于它。
+// 它**只表示源码版本**，不含 commit——commit 由 buildCommit（ldflags 注入）单独给出，
+// 二者拼起来才是部署时看到的版本串，见 versionString。
+const appVersion = "1.13.1-panel"
+
+// buildCommit 构建时注入的 git 提交，由 ldflags 赋值：
+//
+//	go build -ldflags "-X main.buildCommit=$(git describe --always --dirty)"
+//
+// 为什么必须单独注入而不只靠 buildvcs：`-trimpath` + Docker 构建上下文排除了 `.git/`，
+// 那两种情况下 Go 读不到 vcs 信息。显式注入保证容器镜像里也能自证是哪个 commit。
+// 未注入时 versionString 会回落到 buildvcs（本地 `go run` / 直接 go build 的场景）。
+var buildCommit = ""
+
+// vcsRevision 从 buildvcs 信息里取提交（未启用 vcs stamping 或构建环境无 .git 时返回空）。
+// debug.Module.Version 对主模块无效，必须读 build settings 的 vcs.revision。
+func vcsRevision() (rev string, dirty bool) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "", false
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	return rev, dirty
+}
+
+// shortCommit 把各种来源的提交串压成「7 位 + 可选 -dirty」。需要兼容三种输入：
+//
+//	29e5059                    git rev-parse --short
+//	v1.13.0-17-g29e5059        git describe（带 tag 与计数前缀，取 -g 之后）
+//	<40 位 sha>                buildvcs 的 vcs.revision
+//
+// 只截前 7 位是不够的——describe 形态前 7 位是 `v1.13.0`，会截出一段 tag 名来。
+func shortCommit(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "unknown" {
+		return ""
+	}
+	dirty := strings.HasSuffix(raw, "-dirty")
+	raw = strings.TrimSuffix(raw, "-dirty")
+	if i := strings.LastIndex(raw, "-g"); i >= 0 {
+		raw = raw[i+2:]
+	}
+	if len(raw) > 7 {
+		raw = raw[:7]
+	}
+	if dirty {
+		raw += "-dirty"
+	}
+	return raw
+}
+
+// versionString 部署时看到的版本串，形如：
+//
+//	1.13.1-panel+29e5059          正常构建
+//	1.13.1-panel+29e5059-dirty    工作区有未提交改动
+//	1.13.1-panel                  拿不到 commit（理论上只会出现在手工 go build 且无 .git）
+//
+// 为什么值得费这个劲：本 fork 的 appVersion 曾与上游完全相同（都是 1.13.0-panel），
+// 部署后无法区分"跑的是上游构建还是维护版"，排查时抓瞎。带 commit 后一眼可辨。
+func versionString() string {
+	c := shortCommit(buildCommit)
+	if c == "" {
+		rev, dirty := vcsRevision()
+		c = shortCommit(rev)
+		if c != "" && dirty {
+			c += "-dirty"
+		}
+	}
+	if c == "" {
+		return appVersion
+	}
+	return appVersion + "+" + c
+}
 
 // usagePathFor 由 state 文件路径推出用量文件路径：同目录、文件名 usage.json。
 // 这样 config 里改 state_file 时用量数据跟着走，不需要额外配置项。
@@ -309,7 +391,7 @@ func main() {
 		APIKey:      cfg.APIKey,
 		RedisMode:   redisMode,
 		StickyCount: sessCount,
-		Version:     appVersion,
+		Version:     versionString(),
 		Live:        live,
 		// 模型上限探测数据（scripts/probe_max_tokens.py --panel-out 写入）：
 		// 与 state 文件同目录，缺省 data/output_probes.json。

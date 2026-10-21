@@ -312,14 +312,33 @@ go test ./...                      # 完整测试套件
 go run ./cmd/server -config config.json
 ```
 
-构建全部二进制：
+构建全部二进制（推荐用脚本：会自动带版本串与构建 commit）：
 
 ```bash
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o wb2api ./cmd/server
+make build                      # 或 ./scripts/build.sh / .\scripts\build.ps1
+```
+
+手工构建等价于：
+
+```bash
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.buildCommit=$(git rev-parse --short HEAD)" -o wb2api ./cmd/server
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o signin_bin ./cmd/signin
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o login ./cmd/login
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o credit ./cmd/credit
 ```
+
+**版本串**：面板 `/panel/api/overview` 的 `version` 形如 `1.13.1-panel+29e5059`
+（源码版本 + 构建 commit，工作区有未提交改动时带 `-dirty`）——一眼能分辨跑的是哪个构建。
+它由 `-X main.buildCommit=…` 注入；未注入时回落到 Go 的 buildvcs 信息。
+
+> ⚠️ **Windows 本地构建可能被国产杀软删除**：`-s -w` 剥离符号表后，火绒等会按
+> 「代码混淆器」启发式把 `wb2api.exe` 当场吃掉（实测：生成瞬间消失，而 `go build`
+> 本身**不报错**，极易被误认为构建失败）。两种解法：
+> - 把 `bin\` 加入杀软信任区（推荐，保留发布口径）；
+> - 或不剥离符号：`.\scripts\build.ps1 build -NoStrip` / `make build STRIP=0` /
+>   `STRIP=0 ./scripts/build.sh` —— 产物体积约翻倍，**仅供本地调试，不要对外分发**。
+>
+> CI 与 Docker（Linux）构建不受影响。
 
 ### 添加账号（登录）
 
