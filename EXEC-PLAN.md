@@ -28,6 +28,8 @@ flowchart LR
 
 ## P0 基线固化（0.5 天）
 
+> **状态：已完成（2026-10-21）**，tag `v1.13.0-maintain-base`。执行记录见本节末尾。
+
 | # | 任务 | 具体做法 | 验收 |
 |---|---|---|---|
 | P0-1 | 装 Go | 装 **1.22.5**（对齐 `go.mod`）。或临时用 Docker：`docker run --rm -v %cd%:/w -w /w golang:1.23 go build ./...` | `go version` 有输出 |
@@ -39,6 +41,51 @@ flowchart LR
 **回退**：本阶段只加文件与 tag，不碰源码。任何异常 `git checkout .` 即可。
 
 **产出**：可复现构建环境、green commit、tag、构建脚本、可提交的 docs 目录。
+
+### P0 执行记录（实际发生的事）
+
+环境与预期不同：**这台机器既没有 Go 也没有 Docker**，改用便携版 Go（不改系统 PATH）：
+
+```
+E:\Documents\下载\新建文件夹 (11)\tools\go\bin\go.exe   # go1.22.5 windows/amd64
+```
+
+`scripts/build.ps1` 会自动发现它（GBIN → PATH → `..\tools\go` → `.tools\go`），换机器时无需改脚本。
+
+基线结果：`go build ./...`、`go vet ./...`、`go test ./...` **全绿**（19 个包全部 ok，首次约 3 分钟，含依赖下载）。
+
+**计划外的两个发现（都已修，并已改变后续步骤）**：
+
+1. **CRLF 陷阱（重要）**：开发机 `core.autocrlf=true`，仓库无 `.gitattributes` → 工作区全是 CRLF →
+   `gofmt -l` 把 **182 个 .go 全部**判为"未格式化"。这不是格式问题，是行尾问题。
+   - 处理：`gofmt` 门禁做 **CRLF 容错**（对存疑文件先归一 LF 再判，只有真格式问题才失败）；
+   - 根治：新增 `.gitattributes` 约定源码 LF / PowerShell CRLF；
+   - 验证：全新 clone 后 `gofmt -l` = **0**，证明原报告全是行尾差异；
+   - 附注：Dockerfile 里那句 `sed -i 's/\r$//'` 就是同一个坑的历史遗迹，行尾统一后未来可以删掉。
+2. **18 个文件真实格式漂移**：作者手工对齐结构体字段（多余空格），gofmt 要求单空格。
+   已单独提交 `chore(gofmt)` 归一（`git diff --ignore-all-space` 为空，纯空白，无语义改动）。
+   不先归一，gofmt 门禁会对**所有**提交恒失败。
+
+另外两个踩坑记录，避免重复花时间：
+
+- **`scripts/build.ps1` 必须保持 UTF-8 with BOM**。Windows PowerShell 5.1 会把无 BOM 的 UTF-8 按 GBK 解析，中文字符串直接报"字符串缺少终止符"。每次编辑后确认前三字节是 `EF BB BF`。
+- **PS 函数不能直接接 `-o` 这类短参数**：`Invoke-Go build -o x` 会被当成函数参数名解析（与 `-OutVariable/-OutBuffer` 二义）。统一用数组整体传参 `Invoke-Go @('build','-o',$out,$pkg)`。
+
+实际提交（3 个，均为纯基建，未改任何业务逻辑）：
+
+```
+a702c95 chore(gofmt): 归一 18 个文件的空白对齐，使 gofmt 门禁可用
+2509654 chore(p0): 接管维护基线 — 构建脚本、文档解禁、维护方案
+53a4e99 chore(repo): 新增 .gitattributes 统一行尾契约
+tag: v1.13.0-maintain-base
+```
+
+**验收命令**（本机一条命令复核基线）：
+
+```powershell
+.\scripts\build.ps1 check     # gofmt + vet + test，一条命令确认基线仍绿
+.\scripts\build.ps1 version   # 1.13.0-panel —— 发版时须与 tag 对齐
+```
 
 ---
 
