@@ -345,3 +345,44 @@ WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重�
 - **验收判据只能是"不劣化"**：290 请求/天 × 0.5% 基线，检出 2 倍劣化需约 16 天样本，
   本轮改动的价值是形态自洽，不是重试率下降
 
+
+## 1.13.11：两处线上实案（2026-10-22）
+
+两件事同一天撞上，**都不是 1.13.10 引入的**，都是老代码在特定触发条件下才现形。
+
+### 一、账号池 / 模型锁池整块空白（前端）
+
+| 项 | 内容 |
+|---|---|
+| 症状 | 面板「账号池」「模型锁池」两张表**只有表头没有行**；接口 `/panel/api/overview` 返回 200 且 `accounts` 有 3 个号；控制台一条 `ReferenceError: detail is not defined at rateLimitMeta (app.js:274)` |
+| 根因 | `rateLimitMeta` 的两个分支写成 `detail = ...` 而**从未声明** `detail`；`app.js` 首行是 `'use strict'` → 未声明赋值抛 ReferenceError → `renderAccounts` 整块中断 |
+| 为什么现在才炸 | 该函数只在账号带 `rate_limited_models`（模型级限流记录）时被调用。**必须先真的被 6004 打一次**才进入这条路径 —— 平时永远走不到 |
+| 为什么看不出原因 | `loadOverview(true)` 的 `catch` 是 `if (!quiet) toast(...)`，quiet=true 时**完全静默**，前端空白无从排查 |
+
+**修法（三处，都很小但要一起做）**：
+1. `let detail;` —— 补上声明
+2. 把 `renderAccounts` / `renderModelLocks` **提到**那串统计赋值之前：表格是这页的核心，不该被一个侧栏数字拖死
+3. `catch` 里加 `console.error`：quiet 只决定弹不弹 toast，控制台永远留痕
+
+**测试**：新增 `internal/panel/ratelimit_frontend_test.go`，用 node harness 在 **`'use strict'` + vm** 里跑 `rateLimitMeta` 四个分支，外加一条**变异测试**（删掉 `let detail;` 必须 FAIL）。
+两个细节是这条测试的关键，写错就等于没测：
+- 严格模式必须加在 `vm.runInContext` 的**内层脚本**上（外层 `.cjs` 的 `'use strict'` 不传递），否则退化成 sloppy mode，`detail = ...` 会静默建全局变量、测试全绿而 bug 照旧
+- `fmtLocalDateTime` 桩必须按**本地时间**输出，不能用 `toISOString()`（会把值搬到 UTC，断言跟着错位）
+
+### 二、6004 模型级限流以 HTTP 400 返回时被误判
+
+| 项 | 内容 |
+|---|---|
+| 症状 | 单个号持续 400，`{"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-10-22 22:49:09 UTC+8 重置，您也可以切换其他模型继续使用。"}`；**模型锁池是空的**；表现为「400 却切不了号」 |
+| 根因 | `Classify` 只在 `status == 429` 时才归 `ErrSoftRate`；而软限流关键词表里只有 `限流`，上游写的是「频率**限制**」，匹配不上 → 一路兜到 `ErrClient` |
+| 后果链 | `applyErrorPolicy` 没有 `case ErrClient` → **不冷却、不登记 `modelCooldowns`** → 模型锁池空白、同一个号下次仍被选中 → 再撞同一堵墙 |
+| 修法 | `Classify` 在 429 分支后加一条：`IsModelRateLimit(body)`（只认结构化 code 6004，不看状态码）→ `ErrSoftRate`；配合已有的 `ParseRateReset`（会去掉 ` UTC+8` 后缀）精确冷却到上游给的那一刻，并写入模型锁池 → 选号时对该模型自动绕开这个号 |
+| 兜底 | `softRateMarkers` 追加中文「频率限制」（无 code 的文案形态也能兜住） |
+
+**测试**：`TestClassify` 增 4 例（400+6004 紧凑/带空格、403+6004、无 code 的中文文案），`TestParseSoftRateReset` 增 1 例（线上那条带「也可以切换其他模型」尾巴的长文案仍能解析出时间）。
+
+### 教训（写进下一轮的习惯）
+
+1. **`'use strict'` 下的隐式全局赋值是一类看不见的雷**。这类 bug 只在特定数据路径上触发，编译、后端测试、正常路径的手测全都不报错。用脚本扫过一遍全库（`^\s+name =` 且无同名声明），本次只有 `detail` 一处，其余 8 处是多重声明误报。
+2. **静默 catch 是排障的天敌**。`quiet` 该只影响「弹不弹 UI 提示」，不该影响「留不留痕」。
+3. **表格渲染要排在同一段代码的最前面**。统计数据是锦上添花，池子列表是命根子，顺序即优先级。

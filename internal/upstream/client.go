@@ -124,7 +124,7 @@ var softRateMarkers = []string{
 	"too many requests",
 	"too many",
 	"usage limit", // usage limit reached / model usage limit exceeded（用量节流，非计费余额）
-	"请求过于频繁", "限流",
+	"请求过于频繁", "限流", "频率限制",
 }
 
 var sessionDeadMarkers = []string{"Offline user session not found", "12153"}
@@ -622,6 +622,15 @@ func Classify(status int, body string) ErrKind {
 	// 真正的余额耗尽由 402（上层）或 14018（上层）捕获，非 429 状态码的 quota
 	// 措辞仍走下方 hardMarkers（历史语义不变）。
 	if status == http.StatusTooManyRequests {
+		return ErrSoftRate
+	}
+	// 6004 模型级限流**不只走 429**：实测上游会用 HTTP 400 携带同一结构化业务码
+	// （msg「您的使用量已超出频率限制，将在 2026-10-22 22:49:09 UTC+8 重置，您也可以
+	// 切换其他模型继续使用」，2026-10-22 线上实案）。只认业务码、不看状态码，且
+	// 判在通用 4xx 兜底（ErrClient）之前——否则恰好落进最坏分支：body 里明明写着
+	// 重置时间，却因为归 ErrClient 而「不冷却、不登记模型锁池」，同一个号被反复
+	// 选中撞同一堵墙，客户端看到「400 却切不了号」。
+	if IsModelRateLimit(body) {
 		return ErrSoftRate
 	}
 	for _, m := range hardMarkers {

@@ -264,6 +264,11 @@ function rateLimitMeta(row, now) {
     };
   }
   const title = [model, resetAt ? '上游重置：' + fmtLocalDateTime(resetAt) : '上游重置：时间未知'];
+  // detail 必须**显式声明**：下面两个分支都是 `detail = ...` 形式，而本文件首行是
+  // 'use strict' —— 未声明的赋值会抛 ReferenceError，把 renderAccounts 整块干掉
+  // （表现为「账号池 / 模型锁池都空白」）。该函数只在账号带 rate_limited_models
+  // 时被调用，所以这个 bug 要等真的被 6004 打一次才会现形（2026-10-22 线上实案）。
+  let detail;
   if (until && resetAt && until < resetAt) {
     // 双时钟（issue #171 问题二）：黄框出现/消失由 until 决定（网关为防超长
     // 限流拖死全池，把重试封顶在 now+softRateMax），主文字却按 resetAt 显示，
@@ -535,6 +540,9 @@ async function loadOverview(quiet) {
     $('accNote').textContent = d.in_flight_full ? d.in_flight_full + ' 个账号在途占满' : '';
     const up = Math.floor(d.uptime_sec);
     $('subMeta').textContent = '运行 ' + (up >= 86400 ? Math.floor(up / 86400) + ' 天 ' : '') + Math.floor(up % 86400 / 3600) + ' 时 ' + Math.floor(up % 3600 / 60) + ' 分';
+    // 表格先渲染：账号池/模型锁池是这页的核心，不能被上面任何一行统计赋值拖死。
+    // （2026-10-22 实案：rateLimitMeta 里一个未声明变量抛错，导致整块渲染停摆，
+    //  而 catch 在 quiet=true 时又是静默的——用户只看到两张空表。）
     renderAccounts(d.accounts || []);
     renderModelLocks(d.model_locks);
     // 到期卡片跟随首页统计同步刷新（用同一份响应里的按日批次，不额外发请求）。
@@ -542,7 +550,12 @@ async function loadOverview(quiet) {
     // 「检查」之后卡片永远停在那一刻的旧数据。
     const liveFresh = lastPackages && (Date.now() - lastPackagesAt) < EXP_FRESH_MS;
     if ($('expBox') && !liveFresh) renderExpirySnapshot(d);
-  } catch (e) { if (!quiet) toast(e.message, 'err'); }
+  } catch (e) {
+    // 绝不静默：quiet 只决定要不要弹 toast，控制台永远留痕。
+    // （此前 quiet=true 时异常完全无声，前端空白无从排查。）
+    console.error('[loadOverview]', e);
+    if (!quiet) toast(e.message, 'err');
+  }
 }
 
 $('accBody').addEventListener('click', async ev => {

@@ -27,6 +27,14 @@ func TestClassify(t *testing.T) {
 		{200, `{"code":10001,"msg":"积分不足，请充值"}`, ErrHardCredit},
 		{400, `{"code":1,"msg":"额度用尽"}`, ErrHardCredit},
 		{429, ``, ErrSoftRate},
+		// 6004 模型级限流**不只以 429 返回**：实测上游用 HTTP 400 携带同一结构化业务码
+		// （2026-10-22 线上实案，msg「您的使用量已超出频率限制，将在 … 重置，您也可以
+		// 切换其他模型继续使用」）。归 ErrClient 的后果是「不冷却、不登记模型锁池」，
+		// 同一个号被反复选中撞同一堵墙，客户端看到「400 却切不了号」。
+		{400, `{"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-10-22 22:49:09 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"4612bcaff2d4899578fd2337feb11c4e"}`, ErrSoftRate},
+		{400, `{"code": 6004, "msg":"x"}`, ErrSoftRate}, // JSON 空白容差
+		{403, `{"code":"6004","msg":"model rate limit"}`, ErrSoftRate},
+		{400, `您的使用量已超出频率限制`, ErrSoftRate}, // 无 code 时的中文文案兜底
 		// 限流文案（issue #28）：状态码不是 429 时也必须识别为软限流，
 		// 否则账号不会被冷却，下次请求仍会被选中。
 		{200, `{"code":11140,"msg":"The model provider is rate-limiting requests. Please wait a moment and try again."}`, ErrSoftRate},
@@ -176,6 +184,9 @@ func TestParseSoftRateReset(t *testing.T) {
 		ok   bool
 	}{
 		{"6004 带时间+UTC+8 后缀", `{"code":6004,"msg":"将在 ` + ts + ` UTC+8 重置"}`, true},
+		// 线上实案（2026-10-22，HTTP 400）：文案里还带「也可以切换其他模型」尾巴，
+		// 正则必须仍能抓到时间——冷却要靠它精确落到上游给的那一刻。
+		{"400 + 6004 长文案（线上实案）", `{"code":6004,"msg":"您的使用量已超出频率限制，将在 ` + ts + ` UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"x"}`, true},
 		{"6004 带时间无后缀", `{"code":6004,"msg":"将在 ` + ts + ` 重置"}`, true},
 		{"6004 无时间文案", `{"code":6004,"msg":"model usage limit exceeded"}`, false},
 		{"非 6004 但带时间（ParseRateReset 统一解析；模型级豁免由调用侧按 6004 判定）", `{"code":11140,"msg":"将在 ` + ts + ` UTC+8 重置"}`, true},
