@@ -1823,6 +1823,14 @@ if ($('btnHealthRun')) $('btnHealthRun').onclick = async function () {
   }
 };
 
+// 卡片顶部的说明文字（.box > header h3 .hint）在窄屏会被省略号截断——见 index.html
+// 里 .box > header 的溢出防护。把这些说明原样挂到 h3 的 title 上，悬停即可看全，
+// 这样"为了不撑破布局而截断"不会变成"信息丢失"。
+document.querySelectorAll('.box > header h3 .hint').forEach(function (el) {
+  const h3 = el.parentElement;
+  if (h3 && !h3.title) h3.title = (el.textContent || '').trim();
+});
+
 /* ── 轮询 ─────────────────────────────────────────────────────────── */
 function refreshVisible() {
   if (view === 'accounts') { loadOverview(true); renderCachedCompensation(); renderCachedHealth(); }

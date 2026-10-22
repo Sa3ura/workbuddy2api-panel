@@ -206,6 +206,22 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
    在 header 里会把标题挤成两行、把"近 3 天"这类短选项拉成一整条。 */
 .box > header select, .box > header input { width: auto; }
 .box > header h3 { white-space: nowrap; }
+/* 块头部溢出防护（1.13.6）。
+   起因：头部是 `display:flex` + 三段都不换行（h3+hint、note），而 `.box` 有 overflow:hidden。
+   当「标题说明 + 右侧快照说明」的总宽超过卡片宽度时，flex 无法把 nowrap 文本压窄，
+   于是把**后面的按钮挤出可视区并被裁掉**——表现为「卡片右上的按钮凭空消失」，
+   而不是出现横向滚动条（因为 overflow:hidden 直接裁了）。
+   修法两层：
+     1) 按钮永不被压缩（flex:0 0 auto）——它们是最不能丢的东西；
+     2) 窄屏允许头部换行（note 掉到第二行），信息不丢、也不靠省略号糊弄。 */
+.box > header > button, .box > header > .xs { flex: 0 0 auto; }
+@media (max-width: 1280px) {
+  .box > header { flex-wrap: wrap; row-gap: 8px; }
+  .box > header .grow { display: none; }   /* 换行后由 wrap 负责分行，grow 会把 note 顶到新行中间 */
+}
+/* 兜底：极端长度下宁可省略也不撑破布局（完整文字在 h3 的 title 里，悬停可见） */
+.box > header h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.box > header .note { min-width: 0; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
 .box .pad { padding: 17px; }
 /* 补偿活动行：昵称 / 状态标 / 截止倒计时 / 额度 / 领取按钮，单行紧凑排布。
    沿用 .tag 体系染色（ok=已领、warn=待领、bad=临期、mute=中性信息）。 */
