@@ -56,6 +56,18 @@ python3 scripts/apply_preset.py presets/normal.json --apply
 > 预设只写**差异键**：`api_key`、`auth_dir`、`models.hidden` 这些个性化设置永远不会被覆盖。
 > 手工改过 `config.json` 的话，切换前先跑一次预览，确认没有意外覆盖。
 
+**两个容易踩的点**：
+
+1. **巡检间隔会被预设改掉**：`normal`=720（12h）、`throttle`=1440（24h）、`survival`=关闭巡检。
+   套用后想保持 12h，要手工改回。预览输出里会单独提示「含影响上游请求量的键」。
+2. **python 版本**：脚本刻意不用 3.9+ 语法，**python3 ≥ 3.6 即可**。若服务器 python 缺失或太老，
+   借镜像里的 python（镜像本身带 python3）：
+
+   ```bash
+   docker run --rm --entrypoint python3 -v "$PWD":/src -w /src \
+     workbuddy2api-panel-wb2api scripts/apply_preset.py presets/throttle.json --apply
+   ```
+
 ## 3. 「暂停选号」≠「禁用」
 
 降档第 3 级要用暂停，不要用禁用：

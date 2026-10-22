@@ -16,6 +16,11 @@
 
 为什么不用面板的配置页做这件事：面板保存是"整份覆盖"，从面板切档要先手工改十几个
 字段；而脚本一次搞定且可审计（diff 打印旧值 → 新值）。
+
+兼容性：本脚本**刻意不写类型注解**。PEP 585 的 `list[...]` / `dict[...]` 注解需要 3.9+，
+在 3.6 上会在函数定义时就抛 `TypeError: 'type' object is not subscriptable`；而
+`from __future__ import annotations` 也救不了 3.6（它要求 3.7+）。生产机器上可能只有
+python3.6，而这个脚本是**应急时才跑**的东西——跑不起来等于没有，所以宁可省掉注解。
 """
 
 import json
@@ -29,12 +34,12 @@ CONFIG = ROOT / "config.json"
 PRESET_DIR = ROOT / "presets"
 
 
-def load_json(path: Path):
+def load_json(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def merge_diff(target: dict, overlay: dict, prefix: str = "") -> list[tuple[str, object, object]]:
+def merge_diff(target, overlay, prefix=""):
     """把 overlay 深度合并进 target，返回改动清单 [(键路径, 旧值, 新值)]。
 
     只处理 overlay 中出现的键；overlay 里以 `_` 开头的键视为注释跳过。
@@ -54,7 +59,7 @@ def merge_diff(target: dict, overlay: dict, prefix: str = "") -> list[tuple[str,
     return changes
 
 
-def main(argv: list[str]) -> int:
+def main(argv):
     if "--list" in argv or len(argv) < 2:
         names = sorted(p.stem for p in PRESET_DIR.glob("*.json"))
         print("可用预设：" + "、".join(names))
@@ -90,6 +95,15 @@ def main(argv: list[str]) -> int:
     print(f"\n将修改 {len(changes)} 个键：")
     for path, old, new in changes:
         print(f"  {path}: {old!r} -> {new!r}")
+
+    # 影响上游请求量的键单独再提示一次：套 throttle/survival 会顺手改掉巡检间隔，
+    # 用户很容易没注意到"我上周刚设的 12h 被改成 24h 了"（survival 甚至会关掉）。
+    notable = ("pool.max_in_flight", "schedule.health_check_minutes",
+               "schedule.task_sweep_enabled", "schedule.blackcat_enabled")
+    touched = [p for p, _o, _n in changes if p in notable]
+    if touched:
+        print("\n注意：本次改动含**影响上游请求量**的键 -> " + "、".join(touched))
+        print("      （巡检间隔若被预设改掉，想要原值需手工改回）")
 
     if "--apply" not in argv:
         print("\n（预览模式，未写盘。加 --apply 真正应用）")
