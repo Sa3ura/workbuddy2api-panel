@@ -28,7 +28,7 @@
 | `Authorization` | `Bearer <accessToken>` | 鉴权（**安全红线：chat 永不带 `X-Refresh-Token`**） |
 | `Content-Type` | `application/json` | — |
 | `Accept` | `application/json, text/event-stream` | chat 覆盖 common 的非流式默认 |
-| `User-Agent` | `WorkBuddy/5.5.4 WorkBuddy/5.5.4 CLI/2.137.1` | **风控主判据**（三段式） |
+| `User-Agent` | `WorkBuddy/5.7.7 WorkBuddy/5.7.7 CLI/2.156.0` | **风控主判据**（三段式） |
 | `Origin` / `Referer` | `https://www.codebuddy.cn` + `/` | 域归属 |
 | `X-Requested-With` | `XMLHttpRequest` | 浏览器式请求标记 |
 | `Accept-Language` | `zh-CN`（global → `en-US`） | 按 realm 切，避免上游按语言缺省误判 |
@@ -63,7 +63,7 @@ X-CodeBuddy-Request / X-User-Id / X-Domain
 
 两个关键差异（都不是笔误）：
 
-- **UA 是单段** `WorkBuddy/5.5.4`，不是 chat 的三段式——billing 域按官方 billing 客户端形态；
+- **UA 是单段** `WorkBuddy/5.7.7`，不是 chat 的三段式——billing 域按官方 billing 客户端形态；
 - **没有 Origin / Referer**：billing 域不吃这套，发了反而多余。
 
 ## 4. refresh 头族（实测 12 个）
@@ -80,8 +80,8 @@ X-Machine-ID / X-Session-ID / Origin / Referer / UA 三段式 ...
 ## 5. 版本号来源与覆盖
 
 ```go
-defaultClientVersion = "5.5.4"   // UA 的 WorkBuddy/<ver> 与 X-IDE-Version
-defaultCliVersion    = "2.137.1" // UA 的 CLI/<ver>
+defaultClientVersion = "5.7.7"   // UA 的 WorkBuddy/<ver> 与 X-IDE-Version
+defaultCliVersion    = "2.156.0" // UA 的 CLI/<ver>
 ```
 
 `upstream.client_version` / `upstream.cli_version` / `upstream.user_agent` 都能覆盖（空 = 内置默认）。
@@ -156,11 +156,17 @@ C = class {
 | 头 | 取值来源 | 可复制性 | 我们的状态 |
 |---|---|---|---|
 | `X-Custom-Channel-Id` | **字面量 `unknown`**（常量） | ✅ 可完全照抄 | ✅ 1.13.9 起已发 |
-| `X-Device-Token` | `getTuringDeviceToken()` → `turing-sdk/TuringShieldSDK.dll`（原生风控 SDK） | ❌ 无法离线合成 | ⚠️ 配置项 `upstream.device_token`，默认空 |
-| `X-Device-Id-List` | `{"qimei36":"<36 位>"}`，由 `@tencent/qimei-node@1.2.2` + `qimei.dll` 生成（appKey 走 `WORKBUDDY_QIMEI_APP_KEY`） | ⚠️ 需在装客户端的机器上算 | ❌ 未发 |
+| `X-Device-Token` | `getTuringDeviceToken()` → `turing-sdk/TuringShieldSDK.dll`（原生风控 SDK） | ❌ 无法离线合成；**CLI 零命中**（桌面独有） | ⚠️ 配置项 `upstream.device_token`，默认空 |
+| `X-Device-Id-List` | `{"qimei36":"<36 位>"}`，由 `@tencent/qimei-node@1.2.2` + `qimei.dll` 生成（appKey 走 `WORKBUDDY_QIMEI_APP_KEY`） | ❌ 需 Windows/macOS 原生库（无 linux 分支）；**CLI 零命中** | ❌ 未发（与 CLI 形态一致） |
 
-**关键推论**：三条里只有 ① 是常量。②③ 依赖腾讯原生 SDK，且生成的是**那台机器的指纹**——
-在 Linux 服务器上算出的 QIMEI36 与账号注册设备不一致，是否优于"不发"**未经验证**。
+**关键推论**：三条里只有 ① 是常量。②③ 依赖腾讯原生 SDK，且生成的是**那台机器的指纹**。
+
+**2026-10-22 补证（源码级 A，见 `docs/protocol/cli-client.md`）**：官方 **CLI**（桌面版内置的
+`@tencent-ai/codebuddy-code` 2.156.0）对这三条**全部零命中**——设备三件套是**桌面端独有**的。
+CLI 侧唯一相关代码是从环境变量 `CODEBUDDY_QIMEI36` 读值，且只喂**遥测**（缺失时明确 warn
+"telemetry qimei36 will be empty for this process"），完全没有 `X-Device-Id-List` 的拼装点；
+该环境变量由桌面主进程 `main/qimei-helper.js` 用 `@tencent/qimei-node` 算出后注入，而那份实现
+只分 win32 / mac 两条路径，**没有 linux 分支**。故：**不发 ②③ 不是形态残缺，而是与官方 CLI 形态一致**。
 
 ### 官方头构造器（同 asar，权威版本）
 
@@ -186,13 +192,32 @@ function Jr(e) {
   两段此前是 5.5.4 / 2.137.1，均已过期 —— 1.13.9 一并修正。
 - ⚠️ 一个**仍不一致**的点：`X-Product` 官方默认是 **`SaaS`**（`deploymentType` 缺省时），
   我们默认给 `WorkBuddy`。这会改变上游用量归因的维度，**待 A/B 后再定**。
+  **2026-10-22 补证**：官方 **CLI 也默认 `SaaS`**（`ProductEndpointHttpInterceptor`：
+  `getCurrentConfiguration()?.deploymentType ?? … ?? "SaaS"`），即两个独立客户端默认值一致，
+  只有我们偏离——这是目前唯一一处「官方两客户端都确定、只有我们不同」的静态差异。
 
 ### 我们多发、官方客户端里搜不到的头
 
-`X-Machine-ID` / `X-Session-ID`：官方 asar 全文检索**零命中**。这两个头是网关按 uid 派生的
-（`deriveAccountStableID`），官方客户端用的是上面那套三件套。**多发一个官方永不发的头本身
-可能是异常特征**，但也可能是上游风控"认"的东西（生产 3 号全绿、重试率 0.5%），故保留，
-留作 A/B 开关。
+三个：`X-Machine-ID`、`X-Session-ID`、`X-Agent-Runtime`。都是网关自造的
+（前两个按 uid 派生，见 `deriveAccountStableID`），**桌面端与 CLI 两个官方客户端全都没有**。
+
+证据（2026-10-22，源码级 A，详见 `docs/protocol/cli-client.md` §4）：
+
+| 头 | 桌面 `app.asar` | CLI `headless` |
+|---|---|---|
+| `X-Machine-ID` | 0 命中 | 0 命中 |
+| `X-Session-ID` | 0 命中 | 仅 1 处常量定义，**无任何赋值点** |
+| `X-Agent-Runtime` | 0 命中 | 0 命中 |
+
+> **坑**：`X-Session-ID` 在 CLI 里**存在同名常量**，只看字符串命中会误判成"CLI 也发"。
+> 判断一个头发不发，必须看**赋值/`set` 点**，不能看常量定义。
+
+**多发一个官方永不发的头本身可能是异常特征**，但也可能是上游风控"认"的东西
+（生产 3 号全绿、重试率 0.5%），故保留。
+
+> ⚠️ **纠正一条旧记录**：此前写"留作 A/B 开关"，但**代码里没有开关**——
+> `injectAccountStableHeaders` 是无条件注入（`headers.go` 的 `CommonHeaders` 调用）。
+> 真要做 A/B，得先加配置开关（约 10 行 + 测试）。
 
 ### 复核方式
 

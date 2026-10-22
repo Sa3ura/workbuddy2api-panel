@@ -239,3 +239,54 @@ PUID=10001 / PGID=10001        # 必须与 auths/、data/ 属主一致
 
 **这类缺陷属于自动化测试盲区**：Go 测不到 CSS，node harness 只跑纯函数。能做的只有把
 布局约束写成注释（为什么这么写），以及在生产上靠人眼撞见——这次就是你撞见的。
+
+## 客户端形态取证：官方 CLI 反查（2026-10-22，纯文档，无版本变更）
+
+**为什么要做**：`headers.md` §10 留了个悬案——官方「设备身份三件套」里
+`X-Device-Token` / `X-Device-Id-List` 我们从没发过，旧结论只能写"是否优于不发，未经验证"。
+这个问题的前置条件其实是**我们模拟的到底是哪个官方客户端**：若形态是桌面端，缺两个头是残缺；
+若是 CLI，不发就对齐。只靠桌面 asar 推断不出来，得看 CLI 源码。
+
+**取证件在哪**：官方 CLI **不需要另下**——它是桌面版的出厂依赖，
+落在 `D:\WorkBuddy\resources\app.asar.unpacked\cli\`（345 文件），
+包名 `@tencent-ai/codebuddy-code` **2.156.0**（`publishConfig.customPackage.version`；
+顶层 `version` 是 `0.0.0` 不可用），主体 `dist/codebuddy-headless.js`（11.9 MB，未混淆）。
+它就是桌面端实际 spawn 的那一份，与我们 UA 的 `CLI/2.156.0` 同源。
+
+**方法**：桌面 `app.asar` 与 CLI `dist` 各自做**字节级字面量命中统计**（只读，不发请求、不花积分）。
+关键纪律：**命中 ≥1 还要看是常量定义还是赋值点**——`X-Session-ID` 就栽在这里。
+
+| 头 | 桌面 | CLI | 结论 |
+|---|---|---|---|
+| `X-Device-Token` / `X-Device-Id-List` / `X-Custom-Channel-Id` | 5 / 1 / 1 | **0 / 0 / 0** | 桌面端独有 |
+| `X-Machine-ID` / `X-Agent-Runtime` | 0 / 0 | 0 / 0 | 两边都没有，我们多发 |
+| `X-Session-ID` | 0 | 1（常量，零赋值点） | 两边实际都没有，我们多发 |
+| `X-Product` | 默认 `SaaS` | 默认 `SaaS` | 两客户端一致，只有我们给 `WorkBuddy` |
+| `X-Private-Data` | 恒 `true` | `优化开 ? "false" : "true"` | 我们取桌面值 |
+| `X-Agent-Type` / `X-Userinfo` | 0 | 有 | CLI 有、我们无 |
+
+**结论一（结题）**：设备三件套是桌面端独有的，CLI 零命中。CLI 的 qimei 只从环境变量
+`CODEBUDDY_QIMEI36` 读值且**只喂遥测**（缺失时 warn "telemetry qimei36 will be empty"）；
+该变量由桌面 `main/qimei-helper.js` 用 `@tencent/qimei-node` 算出注入，而那份实现只分
+win32/mac，**没有 linux 分支**。→ 我们不发 ②③ 不是残缺，是与 CLI 形态一致，**不必再做 A/B**。
+
+**结论二（新增）**：双方都没有的自造头其实是**三个**（原档案只记了两个），多了 `X-Agent-Runtime`。
+于是「删自造头」这件事从"2 个头待 A/B"变成"3 个官方永不会出现的特征"。
+
+**结论三（证据升级）**：`X-Product` 官方默认从"桌面端 1 份证据"变成"**桌面 + CLI 两个客户端一致**"。
+待办里「唯一未对齐的静态差异」这句话现在站得住了，建议提为最高优先级。
+
+**顺带纠正的三处陈旧记录**：
+1. `headers.md` §5 的版本常量示例还写着 `5.5.4` / `2.137.1`，代码里早就是 `5.7.7` / `2.156.0`；
+2. §2/§3 头族表里的 UA 实测值同样过期；
+3. "`X-Machine-ID` / `X-Session-ID` 留作 A/B 开关"——**开关并不存在**，
+   `injectAccountStableHeaders` 是无条件注入。真要做 A/B 得先加配置开关（约 10 行 + 测试）。
+
+**没解决的（写进 UNVERIFIED #16/#17）**：静态逆向只答"发不发"，答不了"值长什么样"。
+CLI 独立运行时到底发不发 UA 仍未确认（全文 `WorkBuddy/` 零命中，只有 axios 兜底与
+UA 合并机制旁证），`X-Userinfo` / `X-Agent-Type` 的实际取值也取不到——
+这些需要**动态取证**（独立装 CLI + 本地代理抓一次真实请求），留给下一轮。
+
+**交付物**：新增 `docs/protocol/cli-client.md`（含 §10 可入库的只读复核脚本）；
+更新 `headers.md` §2/§3/§5/§10、`protocol/README.md`（§1 新增「A（源码级）」证据级别 + §4 清单）、
+`UNVERIFIED.md` #16/#17、`HANDOFF.md` §3/§5/§6。

@@ -36,7 +36,7 @@ PUID=10001 / PGID=10001        # 必须与 auths/、data/ 属主一致（root �
 | `EXEC-PLAN.md` | P0-P6 分阶段计划与完成状态 |
 | `docs/maintenance-log.md` | **本轮改动的完整记录**（含踩坑与依据） |
 | `docs/RUNBOOK.md` | 应急手册：判据 / 降档梯子 / 切档 / 备份恢复 / 账号复活 / 升级流程 |
-| `docs/protocol/` | 上游协议档案（5 份 A 级 + TEMPLATE + UNVERIFIED） |
+| `docs/protocol/` | 上游协议档案（6 份 A 级 + TEMPLATE + UNVERIFIED）；`cli-client.md` 是官方客户端形态的源码级对照 |
 | `presets/` + `scripts/apply_preset.py` | 三档降档预设（normal/throttle/survival） |
 
 ## 4. 本轮（2026-10-22）交付了什么
@@ -66,9 +66,14 @@ P2（TRIAGE+CHANGELOG）、P6（CONTRIBUTING+release note）未做。
 - 官方「设备身份三件套」：`X-Custom-Channel-Id: unknown`（常量，我们已发）、
   `X-Device-Token`（Turing Shield 原生 SDK 签发，**无法离线合成**）、
   `X-Device-Id-List: {"qimei36":...}`（腾讯 QIMEI SDK，需 appKey）
+- **设备三件套是桌面端独有的**（2026-10-22 源码级证据）：官方 CLI
+  （桌面版内置 `@tencent-ai/codebuddy-code` 2.156.0）对三条**全部零命中**，其 qimei 只读环境变量喂遥测。
+  → 我们不发 ②③ = 与 CLI 形态一致，**不是形态残缺**。详见 `docs/protocol/cli-client.md`
 - 官方 UA：`WorkBuddy/5.7.7 WorkBuddy/5.7.7 CLI/2.156.0`（我们已对齐）
-- 官方 `X-Product` 默认 **`SaaS`**；我们默认 `WorkBuddy` —— **唯一未对齐的静态差异，待 A/B**
-- 我们多发 `X-Machine-ID` / `X-Session-ID`（官方 asar 零命中），保留待 A/B
+- 官方 `X-Product` 默认 **`SaaS`**（**桌面端与 CLI 两个客户端一致**）；我们默认 `WorkBuddy`
+  —— **唯一未对齐的静态差异，且已从"1 份证据"升级为"两客户端一致"**
+- 我们多发 `X-Machine-ID` / `X-Session-ID` / `X-Agent-Runtime`（**桌面与 CLI 两个官方客户端都没有**；
+  注意 `X-Session-ID` 在 CLI 里只是个从不赋值的常量，别按字符串命中误判）
 - 上游 `11-128 illegal api invocation from an unapproved channel` 的发生率 ≈ **0.5%**，
   与 prompt 长度**无关**（分桶统计 p≈0.2），更像抽样式通道校验；**全部被降级重试吸收**，
   用户无感。详见 `docs/protocol/headers.md` §10
@@ -78,7 +83,7 @@ P2（TRIAGE+CHANGELOG）、P6（CONTRIBUTING+release note）未做。
 | 优先 | 项 | 说明 |
 |---|---|---|
 | 1 | **观察 1-2 周** | 1.13.9 后看 `data/request-logs` 的重试率是否下降（不变也正常） |
-| 2 | `X-Product: SaaS` A/B | 唯一未对齐的静态差异，改动会影响用量归因维度 |
+| 2 | `X-Product: SaaS` A/B | 唯一未对齐的静态差异；**桌面端与 CLI 默认都是 `SaaS`（两客户端一致）**，只有我们给 `WorkBuddy`。改动会影响用量归因维度 |
 | 3 | P2：`TRIAGE.md` + `CHANGELOG.md` | 症状→符号索引；变更记录 |
 | 4 | P6：`CONTRIBUTING.md` + release note 模板 | 计划收尾 |
 | 5 | 真恢复演练 | `RUNBOOK.md` §4，需停机窗口（**至今未真跑过**） |
