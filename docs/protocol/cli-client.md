@@ -44,7 +44,7 @@
 | `X-Custom-Channel-Id` | 1 | **0** | 桌面独有 |
 | `X-Machine-ID` | **0** | **0** | 两个客户端都没有 |
 | `X-Session-ID` | 0 | 1（仅常量，从不赋值） | 两个客户端实际都没有 |
-| `X-Agent-Runtime` | **0** | **0** | 两个客户端都没有 |
+| `X-Agent-Runtime` | **0** | **0** | ⚠️ **版本待核**（见 §11-0：本地 2.156.0 零命中，但本仓库 `search.go` 注释称「官方 2.166.0 起必发」；npm 最新已是 2.172.1） |
 | `X-Product` | 10 | 2 | 都发，**默认值相同**（§5） |
 | `X-Private-Data` | 2 | 1 | 都发，**取值语义不同**（§6） |
 | `X-Agent-Type` | 0 | 1 | CLI 有、我们无 |
@@ -93,7 +93,7 @@ let a = await new (new (r())())({ appKey: i, dllPath: process.env.WORKBUDDY_QIME
 |---|---|
 | `X-Machine-ID` | 桌面 0 命中、CLI 0 命中 |
 | `X-Session-ID` | 桌面 0 命中；CLI **字面量仅 1 处**（常量赋值 `ei.SESSION_ID_HEADER="X-Session-ID"`，外加 1 处导出列表引用），**没有任何一处把它写进请求头**（无 `setHeaderCaseInsensitive(…, SESSION_ID_HEADER, …)` 调用） |
-| `X-Agent-Runtime` | 桌面 0 命中、CLI 0 命中（**本档案新发现**，此前档案未记录） |
+| `X-Agent-Runtime` | 桌面 0 命中、CLI（2.156.0）0 命中 —— **但结论不可靠**：`internal/upstream/search.go` 的注释明确写「官方 2.166.0 起必发，无 runtime 时回落 `"other"`」，说明**官方 CLI 已前进到 ≥2.166.0，本地这份 2.156.0 落后**（§11-0）。故本条**不能**作为"删掉它"的依据 |
 
 这三项都是网关按 uid 派生或自造的（`deriveAccountStableID` / 固定常量），
 **没有任何官方客户端会发**。它们构成我们出站形态里唯一一组"官方永不会出现"的特征。
@@ -195,6 +195,21 @@ for h in ["X-Session-ID", "X-Agent-Type", "X-Private-Data"]:
 
 ## 11. 局限与未验证项
 
+**0. 版本代差（最重要的一条，先看这个）。** 本档案取证的是**桌面端内置 CLI `2.156.0`**，
+而 npm 上 `@tencent-ai/codebuddy-code` 最新已到 **`2.172.1`**（2026-10-22 查 registry）。
+本仓库 `internal/upstream/search.go` 的注释还写着「`X-Agent-Runtime`：官方 **2.166.0** 起必发」——
+即**官方 CLI 已经越过 2.156.0 好几个版本，期间新增过头**。
+
+因此本档案的每条结论都要分两类看：
+
+| 类型 | 例子 | 是否受版本代差影响 |
+|---|---|---|
+| **结构性结论**（客户端形态的定位） | 设备三件套是否属于桌面端；`X-Machine-ID` 这种自造头是否官方有 | 低：形态定位不会因为几个 minor 版本翻盘 |
+| **逐头结论**（某个头某版本发不发） | `X-Agent-Runtime`、`X-Agent-Type`、`X-Userinfo` | **高：必须按最新版复核**，否则会把"新版新增的头"当成"官方不发" |
+
+**行动**：任何"删除我们多发的头"的改动，必须先拉 `2.172.1` 重跑 §10 的脚本（只读、约十分钟）。
+在那之前删 `X-Agent-Runtime` 是**有证据反向支持的危险动作**。
+
 1. **静态逆向只回答"发不发"，回答不了"值长什么样"。** `X-Userinfo`（base64 内容）、`X-Agent-Type` 的实际取值、
    `X-Private-Data` 的真实默认，都需要**动态取证**（独立安装 CLI + 本地代理抓一次真实请求）才能确认。本档案不覆盖。
 2. **CLI 独立运行时是否设置 UA，未确认。** CLI 全文 `WorkBuddy/` **0 命中**，唯一的兜底是 axios 库内的
@@ -210,7 +225,7 @@ for h in ["X-Session-ID", "X-Agent-Type", "X-Private-Data"]:
 |---|---|---|
 | ① `X-Device-Id-List`（QIMEI36） | "收益未证、是否优于不发没证据" | **不做**，且理由升级：CLI 零发送 = 不发即对齐；且 SDK 无 linux 分支 |
 | ② `X-Device-Token` | "无法离线合成" | **不做**，理由不变（桌面独有 + 按设备签发，共用=多号关联） |
-| ③ 删 `X-Machine-ID` / `X-Session-ID` | 待 A/B 的 2 个头 | 范围扩到 **3 个**（+ `X-Agent-Runtime`），且性质明确为"官方永不会出现的特征" |
+| ③ 删 `X-Machine-ID` / `X-Session-ID` / `X-Agent-Runtime` | 待 A/B 的 2 个头 | `X-Machine-ID` / `X-Session-ID` 定论：桌面与 CLI（2.156.0）都没有，性质为"官方永不会出现的特征"；`X-Agent-Runtime` **单列待核**（可能正是 2.166.0+ 的新增头，删之前必须按最新版复核，见 §11-0） |
 | `X-Product: SaaS` | 待办 #2（1 份证据） | 依据升级为两客户端一致，**建议提为最高优先级** |
 | 补 `X-Agent-Type` / `X-Userinfo` | 未列入 | 新增候选（CLI 有、我们无），**需先定形态再补**：只补头不改 UA，混合形态问题（§8）不会消失 |
 

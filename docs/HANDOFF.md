@@ -72,8 +72,9 @@ P2（TRIAGE+CHANGELOG）、P6（CONTRIBUTING+release note）未做。
 - 官方 UA：`WorkBuddy/5.7.7 WorkBuddy/5.7.7 CLI/2.156.0`（我们已对齐）
 - 官方 `X-Product` 默认 **`SaaS`**（**桌面端与 CLI 两个客户端一致**）；我们默认 `WorkBuddy`
   —— **唯一未对齐的静态差异，且已从"1 份证据"升级为"两客户端一致"**
-- 我们多发 `X-Machine-ID` / `X-Session-ID` / `X-Agent-Runtime`（**桌面与 CLI 两个官方客户端都没有**；
-  注意 `X-Session-ID` 在 CLI 里只是个从不赋值的常量，别按字符串命中误判）
+- 我们多发 `X-Machine-ID` / `X-Session-ID`（**桌面与 CLI 都没有**，`X-Session-ID` 在 CLI 里只是个从不赋值的常量，别按字符串命中误判）；
+  `X-Agent-Runtime` **单列待核**——本地内置 CLI 是 2.156.0（零命中），但 `search.go` 注释称官方 2.166.0 起必发，
+  npm 最新已是 2.172.1，**删之前必须按最新版复核**
 - 上游 `11-128 illegal api invocation from an unapproved channel` 的发生率 ≈ **0.5%**，
   与 prompt 长度**无关**（分桶统计 p≈0.2），更像抽样式通道校验；**全部被降级重试吸收**，
   用户无感。详见 `docs/protocol/headers.md` §10
