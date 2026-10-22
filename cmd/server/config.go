@@ -161,13 +161,19 @@ type Config struct {
 		// 默认值已对齐官方 WorkBuddy 桌面形态（三段式），用户仍可配完全自定义值改写。
 		UserAgent string `json:"user_agent"`
 		// ClientVersion WorkBuddy 客户端版本段（出站 UA 的 `WorkBuddy/<ver>` 与归属头
-		// X-IDE-Version）。空 = 内置默认（对齐官方 5.7.7 分发包）。
+		// X-IDE-Version）。空 = 内置默认（对齐官方当前分发包，取值路径见
+		// internal/upstream/headers.go 的 defaultClientVersion）。
 		ClientVersion string `json:"client_version"`
-		// CliVersion 出站 UA 中 `CLI/<ver>` 段的版本。空 = 内置默认（官方内置 CLI 2.156.0）。
+		// CliVersion 出站 UA 中 `CLI/<ver>` 段的版本。空 = 内置默认（对齐桌面端内置 CLI）。
 		CliVersion string `json:"cli_version"`
-		// ClientName 用量归属头取值（X-Product / X-IDE-Name / X-IDE-Type / X-IDE-Version）。
-		// 空 = 旧行为 X-Product="SaaS" 不设 X-IDE-*；配 "WorkBuddy" 则四头跟随。
+		// ClientName 用量归属名（X-IDE-Name/Type/Version + X-Agent-Purpose）。
+		// 空 = 默认 "WorkBuddy"（对齐官方桌面端）；配 "SaaS" 则不发 X-IDE-*。
+		// 1.13.10 起不再影响 X-Product（见 product）。
 		ClientName string `json:"client_name"`
+		// Product 出站 X-Product 头取值（用量归因维度）。
+		// 空 = 内置默认 "SaaS"（官方桌面端与 CLI 缺省值都是 SaaS）。
+		// 回退旧行为配 "WorkBuddy"。
+		Product string `json:"product"`
 		// DeviceToken 设备风控 Token（X-Device-Token 头）全局兜底；空 = 不注入。
 		// 每号 auth 文件的 device_token 键优先于本项。
 		DeviceToken string `json:"device_token"`
@@ -468,6 +474,9 @@ func applyEnv(c *Config) {
 	}
 	if v := os.Getenv("WB2A_CLIENT_NAME"); v != "" {
 		c.Upstream.ClientName = v
+	}
+	if v := os.Getenv("WB2A_PRODUCT"); v != "" {
+		c.Upstream.Product = v
 	}
 	if v := os.Getenv("WB2A_DEVICE_TOKEN"); v != "" {
 		c.Upstream.DeviceToken = v

@@ -292,3 +292,56 @@ UA 合并机制旁证），`X-Userinfo` / `X-Agent-Type` 的实际取值也取�
 **交付物**：新增 `docs/protocol/cli-client.md`（含 §10 可入库的只读复核脚本）；
 更新 `headers.md` §2/§3/§5/§10、`protocol/README.md`（§1 新增「A（源码级）」证据级别 + §4 清单）、
 `UNVERIFIED.md` #16/#17、`HANDOFF.md` §3/§5/§6。
+
+## 1.13.10：版本段跟随 + `X-Product` 对齐 `SaaS`（2026-10-22）
+
+用户更新桌面端（5.7.7 → **5.8.3**，内置 CLI 2.156.0 → **2.161.0**），触发本轮两件事。
+目标是**降低「被判定为非官方客户端」的确定性**，不是"对抗"——边界见 `MAINTAINING.md` §9。
+
+### 一、版本段过期（T0，零代码风险）
+
+上一版 1.13.9 刚把 UA 对齐到 5.7.7 / 2.156.0，**当天下午就过期了**。UA 是风控主判据
+（`headers.md` §2），旧版本号是最容易被识别的信号之一，而修正成本为零：
+
+| 位置 | 旧 | 新 |
+|---|---|---|
+| `defaultClientVersion` | 5.7.7 | **5.8.3** |
+| `defaultCliVersion` | 2.156.0 | **2.161.0** |
+
+**顺带定了一条防腐烂纪律**：文档与代码注释不再写死版本号，只写**取值路径**——
+`client_version` 取 `WorkBuddy.exe` 的 `VersionInfo.ProductVersion`，
+`cli_version` 取 `cli/package.json` 的 `publishConfig.customPackage.version`（顶层 `version` 恒为 `0.0.0`）。
+测试同理：`useragent_test.go` 里的期望串改成用常量拼，不再烤死数字（此前已经腐烂三轮：5.5.4 → 5.7.7 → 5.8.3）。
+
+### 二、`X-Product` 默认改 `SaaS`（T1，需先解耦）
+
+官方**两个独立客户端**的默认值都是 `SaaS`（桌面 `deploymentType?.trim() || 'SaaS'`、
+CLI `… ?? "SaaS"`），我们此前默认发 `WorkBuddy` —— 唯一一处「官方两客户端都确定、只有我们不同」的静态差异。
+
+**卡点不是改值，是解耦**：`client_name` 一个键同时决定 `X-Product` 与 `X-IDE-*` 四头，
+而且 `client_name="SaaS"` 分支会把 IDE 四头整组砍掉 —— 也就是说"只想把 X-Product 改成 SaaS"做不到，
+必须连 IDE 四头一起丢。所以先拆成两个维度：
+
+| 维度 | 取值 | 配置键 |
+|---|---|---|
+| `X-Product` | 默认 **`SaaS`** | `upstream.product`（配 `WorkBuddy` 即回滚 1.13.9 行为） |
+| `X-IDE-*` / `X-Agent-Purpose` | 默认 `WorkBuddy` | `upstream.client_name`（`SaaS` 仍是"不发 IDE 四头"的旧语义） |
+
+兼容性：`client_name="SaaS"` 的旧语义完全保留；老配置不写 `product` 时行为变化就是"X-Product 从
+WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重启容器，**不需要重新构建镜像**。
+
+### 三、一个被我撤回的改动（T2）
+
+原计划里还有"ID 形态 32 hex → UUID"。核实时发现搞混了两条路径：桌面 `applyGatewayHeaders`
+（**本机 ACP 网关**，app↔本地 agent）用 `randomUUID()` 带横线；而 **CLI → 云端 chat** 用
+`generateUUUID().replace(/-/g,"")` = **32 hex**。我们发的一直是 32 hex，**本来就对齐**，改了反而错。
+已把这段纠错写进 `cli-client.md` §7.1，并把 UNVERIFIED #18 更新为"2.161.0 仍零命中"。
+
+### 验证
+
+- `.\scripts\build.ps1 check` 全绿；新增 `attribution_test.go`（5 个解耦用例 + 默认值护栏 + 版本形状）
+- `doctor -headers` 实测：`User-Agent: WorkBuddy/5.8.3 WorkBuddy/5.8.3 CLI/2.161.0`、
+  `X-IDE-Version: 5.8.3`、`X-Product: SaaS`、`X-Private-Data: true`（本轮未动）
+- **验收判据只能是"不劣化"**：290 请求/天 × 0.5% 基线，检出 2 倍劣化需约 16 天样本，
+  本轮改动的价值是形态自洽，不是重试率下降
+

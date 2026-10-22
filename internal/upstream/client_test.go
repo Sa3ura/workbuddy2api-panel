@@ -307,7 +307,8 @@ func TestChatStreamSendsHeadersAndStreamTrue(t *testing.T) {
 		t.Errorf("200 response should carry nil body, got %q", respBody)
 	}
 	rc.Close()
-	if gotAuth != "Bearer at" || gotUID != "u1" || gotProduct != "WorkBuddy" {
+	// 1.13.10：X-Product 默认改为官方两客户端一致的 SaaS（此前跟随 client_name 发 WorkBuddy）。
+	if gotAuth != "Bearer at" || gotUID != "u1" || gotProduct != "SaaS" {
 		t.Errorf("headers: auth=%q uid=%q product=%q", gotAuth, gotUID, gotProduct)
 	}
 	if !bytes.Contains(gotBody, []byte(`"stream":true`)) {

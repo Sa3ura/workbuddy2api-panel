@@ -38,7 +38,7 @@ import (
 // ⚠️ 这个常量是 CI 的 tag 断言依据：打 tag 前必须先改这里，且 tag（去掉 -panel 后缀）必须等于它。
 // 它**只表示源码版本**，不含 commit——commit 由 buildCommit（ldflags 注入）单独给出，
 // 二者拼起来才是部署时看到的版本串，见 versionString。
-const appVersion = "1.13.9-panel"
+const appVersion = "1.13.10-panel"
 
 // buildCommit 构建时注入的 git 提交，由 ldflags 赋值：
 //
@@ -236,11 +236,13 @@ func main() {
 	up.SanitizeFingerprints.Store(cfg.Features.SanitizeBlacklistFingerprints)
 	// 出站 UA 与归属头（issue #42 + 上游同步）：
 	// UserAgent 非空则完全覆盖；ClientVersion/CliVersion 缺省对齐官方形态；
-	// ClientName 非空时 chat 路径注入 X-IDE-* 四头（用量归因对齐官方桌面端）。
+	// ClientName 决定 X-IDE-* 四头与 X-Agent-Purpose 的名字；Product 决定 X-Product
+	// （1.13.10 起解耦，默认 SaaS —— 官方桌面端与 CLI 两个客户端的缺省值都是 SaaS）。
 	up.UserAgent = cfg.Upstream.UserAgent
 	up.ClientVersion = cfg.Upstream.ClientVersion
 	up.CliVersion = cfg.Upstream.CliVersion
 	up.ClientName = cfg.Upstream.ClientName
+	up.Product = cfg.Upstream.Product
 	up.DeviceToken = cfg.Upstream.DeviceToken
 	up.DeviceTokenFile = cfg.Upstream.DeviceTokenFile
 	up.PassthroughIP = cfg.Upstream.PassthroughIP

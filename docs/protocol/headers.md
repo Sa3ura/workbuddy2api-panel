@@ -28,7 +28,7 @@
 | `Authorization` | `Bearer <accessToken>` | 鉴权（**安全红线：chat 永不带 `X-Refresh-Token`**） |
 | `Content-Type` | `application/json` | — |
 | `Accept` | `application/json, text/event-stream` | chat 覆盖 common 的非流式默认 |
-| `User-Agent` | `WorkBuddy/5.7.7 WorkBuddy/5.7.7 CLI/2.156.0` | **风控主判据**（三段式） |
+| `User-Agent` | `WorkBuddy/5.8.3 WorkBuddy/5.8.3 CLI/2.161.0` | **风控主判据**（三段式） |
 | `Origin` / `Referer` | `https://www.codebuddy.cn` + `/` | 域归属 |
 | `X-Requested-With` | `XMLHttpRequest` | 浏览器式请求标记 |
 | `Accept-Language` | `zh-CN`（global → `en-US`） | 按 realm 切，避免上游按语言缺省误判 |
@@ -39,8 +39,8 @@
 | `X-No-Enterprise-Id` | `1` | 个人号显式声明无企业（缺省会被疑） |
 | `X-Agent-Purpose` | `conversation` | 用量归因 |
 | `X-IDE-Name` / `X-IDE-Type` / `X-IDE-Product` | `WorkBuddy` | 用量归因四头 |
-| `X-IDE-Version` | `5.5.4`（= `client_version`） | 用量归因 |
-| `X-Product` | `WorkBuddy` | 用量归因 |
+| `X-IDE-Version` | `5.8.3`（= `client_version` = 桌面端 appVersion） | 用量归因 |
+| `X-Product` | `SaaS`（官方缺省；`upstream.product` 可改） | 用量归因 |
 | `X-Conversation-ID` | 客户端传入值（空则**不发**） | 会话级聚合 |
 | `X-Conversation-Request-ID` | 网关生成，**必发** | 对话轮级聚合主键 |
 | `X-Conversation-Message-ID` | 32 hex，每条独立 | 消息级 |
@@ -63,7 +63,7 @@ X-CodeBuddy-Request / X-User-Id / X-Domain
 
 两个关键差异（都不是笔误）：
 
-- **UA 是单段** `WorkBuddy/5.7.7`，不是 chat 的三段式——billing 域按官方 billing 客户端形态；
+- **UA 是单段** `WorkBuddy/5.8.3`，不是 chat 的三段式——billing 域按官方 billing 客户端形态；
 - **没有 Origin / Referer**：billing 域不吃这套，发了反而多余。
 
 ## 4. refresh 头族（实测 12 个）
@@ -79,16 +79,30 @@ X-Machine-ID / X-Session-ID / Origin / Referer / UA 三段式 ...
 
 ## 5. 版本号来源与覆盖
 
+**别抄死版本号——抄取值路径。** 我们已经腐烂三轮（`5.5.4` → `5.7.7` → `5.8.3`），
+每次都是"文档写着旧值、代码已是新值"。版本值的**单点**是 `internal/upstream/headers.go` 的两个常量：
+
 ```go
-defaultClientVersion = "5.7.7"   // UA 的 WorkBuddy/<ver> 与 X-IDE-Version
-defaultCliVersion    = "2.156.0" // UA 的 CLI/<ver>
+defaultClientVersion = "5.8.3"   // UA 的 WorkBuddy/<ver> 与 X-IDE-Version
+defaultCliVersion    = "2.161.0" // UA 的 CLI/<ver>
 ```
+
+取值路径（核对时照这两条查，不要问文档）：
+
+| 段 | 取值位置 |
+|---|---|
+| `client_version` | `(Get-Item <安装目录>\WorkBuddy.exe).VersionInfo.ProductVersion` |
+| `cli_version` | `<安装目录>\resources\app.asar.unpacked\cli\package.json` 的 `publishConfig.customPackage.version`（**顶层 `version` 恒为 `0.0.0`，不可用**） |
 
 `upstream.client_version` / `upstream.cli_version` / `upstream.user_agent` 都能覆盖（空 = 内置默认）。
 **上游改版本号时，改配置而不是改代码**——这是本项目最值得保留的设计之一。
 
 UA 三段式：`WorkBuddy/<clientVer> <platform>/<clientVer> CLI/<cliVer>`，
 其中 `<platform>` 默认 `WorkBuddy`（见 `headers.go` 的 `userAgent`）。
+
+> **1.13.10 版本对齐记录**：桌面端 5.7.7 → **5.8.3**、内置 CLI 2.156.0 → **2.161.0**
+> （2026-10-22 用户更新桌面端后实测）。同期 `X-Product` 默认由 `WorkBuddy` 改为 **`SaaS`**
+> （官方两客户端一致，见 §10），并拆出独立配置键 `upstream.product`。
 
 ## 6. 已知风控信号（对应 `ErrChannelRefused` / `ErrWafBlock`）
 
@@ -131,8 +145,8 @@ go test ./cmd/doctor/ -run DumpHeaders  # 遮蔽与头族完整性断言
 
 ## 10. 设备身份三件套（A 级证据：客户端源码，2026-10-22）
 
-**证据来源**：`D:\WorkBuddy\resources\app.asar` → `/main/module.app-server.js`（203MB 包内未压缩 JS）。
-WorkBuddy Desktop = 腾讯 Electron 应用，`ProductVersion 5.7.7`。
+**证据来源**：`D:\WorkBuddy\resources\app.asar` → `/main/module.app-server.js`（包内未压缩 JS）。
+WorkBuddy Desktop = 腾讯 Electron 应用，`ProductVersion 5.8.3`（2026-10-22 复核；当日早些时候为 5.7.7）。
 
 官方在每个需要身份的 API 请求上附带三个设备身份头，由同一个 provider 产出：
 
@@ -162,7 +176,8 @@ C = class {
 **关键推论**：三条里只有 ① 是常量。②③ 依赖腾讯原生 SDK，且生成的是**那台机器的指纹**。
 
 **2026-10-22 补证（源码级 A，见 `docs/protocol/cli-client.md`）**：官方 **CLI**（桌面版内置的
-`@tencent-ai/codebuddy-code` 2.156.0）对这三条**全部零命中**——设备三件套是**桌面端独有**的。
+`@tencent-ai/codebuddy-code`，取证时为 2.156.0、复核时为 2.161.0）对这三条**全部零命中**——
+设备三件套是**桌面端独有**的。两次独立版本复核结论一致，故这不是版本巧合。
 CLI 侧唯一相关代码是从环境变量 `CODEBUDDY_QIMEI36` 读值，且只喂**遥测**（缺失时明确 warn
 "telemetry qimei36 will be empty for this process"），完全没有 `X-Device-Id-List` 的拼装点；
 该环境变量由桌面主进程 `main/qimei-helper.js` 用 `@tencent/qimei-node` 算出后注入，而那份实现
@@ -187,14 +202,15 @@ function Jr(e) {
 ```
 
 - `X-Private-Data: true` **无条件设置**（此前我们漏发，1.13.9 已补）。
-- **版本段来源**：`appVersion` = 分发包版本（5.7.7）；`cliVersion` = 内置 `cli/package.json`
-  的 `publishConfig.customPackage.version`（**2.156.0**；`version` 字段是 `0.0.0` 故不可用）。
-  两段此前是 5.5.4 / 2.137.1，均已过期 —— 1.13.9 一并修正。
-- ⚠️ 一个**仍不一致**的点：`X-Product` 官方默认是 **`SaaS`**（`deploymentType` 缺省时），
-  我们默认给 `WorkBuddy`。这会改变上游用量归因的维度，**待 A/B 后再定**。
-  **2026-10-22 补证**：官方 **CLI 也默认 `SaaS`**（`ProductEndpointHttpInterceptor`：
-  `getCurrentConfiguration()?.deploymentType ?? … ?? "SaaS"`），即两个独立客户端默认值一致，
-  只有我们偏离——这是目前唯一一处「官方两客户端都确定、只有我们不同」的静态差异。
+- **版本段来源（别抄数字，抄路径）**：`appVersion` = 分发包版本，
+  取 `(Get-Item <安装目录>\WorkBuddy.exe).VersionInfo.ProductVersion`；`cliVersion` = 内置
+  `cli/package.json` 的 `publishConfig.customPackage.version`（顶层 `version` 恒 `0.0.0`，不可用）。
+  历次值：`5.5.4/2.137.1` → `5.7.7/2.156.0`（1.13.9）→ **`5.8.3/2.161.0`（1.13.10）**。
+- ✅ **已对齐（1.13.10）**：`X-Product`。官方桌面端 `deploymentType?.trim() || 'SaaS'`、官方 CLI
+  `getCurrentConfiguration()?.deploymentType ?? … ?? "SaaS"` —— **两个独立客户端默认值都是 `SaaS`**，
+  `WorkBuddy` 只在部署类型被显式配置时出现。我们此前默认发 `WorkBuddy`，是唯一一处
+  「官方两客户端都确定、只有我们不同」的静态差异，现已改为默认 `SaaS`；
+  需要旧值时配 `upstream.product = "WorkBuddy"`（一行配置即可回滚，无需重新构建）。
 
 ### 我们多发、官方客户端里搜不到的头
 

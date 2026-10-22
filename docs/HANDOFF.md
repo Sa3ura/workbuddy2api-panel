@@ -1,12 +1,12 @@
 # HANDOFF · 给新会话 / 新维护者
 
 > 一页纸交接。**新会话开场只需说一句**：「读 `docs/HANDOFF.md`，继续维护 workbuddy2api-panel」。
-> 最后更新：2026-10-22（维护版 1.13.9）
+> 最后更新：2026-10-22（维护版 1.13.10）
 
 ## 1. 一句话现状
 
 WorkBuddy2API Panel 是 `Sliverkiss/workbuddy2api`（已停更）的维护分支。**已上线生产**，
-3 个 cn 账号全绿，探针/面板/CI/降档预案齐备，当前版本 `1.13.9-panel`。
+3 个 cn 账号全绿，探针/面板/CI/降档预案齐备，当前版本 `1.13.10-panel`。
 
 ## 2. 线上状态
 
@@ -57,23 +57,26 @@ P2（TRIAGE+CHANGELOG）、P6（CONTRIBUTING+release note）未做。
 | 1.13.7 | `apply_preset.py` 兼容 python 3.6（去掉 PEP 585 注解） |
 | 1.13.8 | 缩短积分到期提醒说明文字（头部回单行） |
 | 1.13.9 | 对齐官方设备身份头与版本段（客户端源码级证据） |
+| 1.13.10 | 版本段跟随桌面端更新（5.8.3 / 2.161.0）+ `X-Product` 默认改 `SaaS`（`upstream.product` 可回滚） |
 
 ## 5. 已确认的事实（别再重复调研）
 
-**WorkBuddy/CodeBuddy = 腾讯产品**，桌面端 `WorkBuddy Desktop 5.7.7`（Electron）。
-客户端包在 `D:\WorkBuddy\resources\app.asar`（203MB，JS 未压缩，可直接扫）。
+**WorkBuddy/CodeBuddy = 腾讯产品**，桌面端 `WorkBuddy Desktop 5.8.3`（Electron；2026-10-22 从 5.7.7 更新）。
+客户端包在 `D:\WorkBuddy\resources\app.asar`（约 97MB，JS 未压缩，可直接扫），
+内置 CLI 在同目录的 `app.asar.unpacked\cli\`。
 
 - 官方「设备身份三件套」：`X-Custom-Channel-Id: unknown`（常量，我们已发）、
   `X-Device-Token`（Turing Shield 原生 SDK 签发，**无法离线合成**）、
   `X-Device-Id-List: {"qimei36":...}`（腾讯 QIMEI SDK，需 appKey）
-- **设备三件套是桌面端独有的**（2026-10-22 源码级证据）：官方 CLI
-  （桌面版内置 `@tencent-ai/codebuddy-code` 2.156.0）对三条**全部零命中**，其 qimei 只读环境变量喂遥测。
-  → 我们不发 ②③ = 与 CLI 形态一致，**不是形态残缺**。详见 `docs/protocol/cli-client.md`
-- 官方 UA：`WorkBuddy/5.7.7 WorkBuddy/5.7.7 CLI/2.156.0`（我们已对齐）
-- 官方 `X-Product` 默认 **`SaaS`**（**桌面端与 CLI 两个客户端一致**）；我们默认 `WorkBuddy`
-  —— **唯一未对齐的静态差异，且已从"1 份证据"升级为"两客户端一致"**
+- **设备三件套是桌面端独有的**（源码级证据，**两次版本复核一致**）：官方 CLI 对三条**全部零命中**，
+  其 qimei 只读环境变量喂遥测。→ 我们不发 ②③ = 与 CLI 形态一致，**不是形态残缺**。
+  详见 `docs/protocol/cli-client.md`
+- 官方 UA：`WorkBuddy/<appVersion> WorkBuddy/<appVersion> CLI/<cliVersion>`（我们已对齐公式；
+  **版本段会腐烂**，别抄数字，按 `docs/protocol/headers.md` §5 的取值路径复核。1.13.10 时点：5.8.3 / 2.161.0）
+- 官方 `X-Product` 默认 **`SaaS`**（**桌面端与 CLI 两个客户端一致**）→ ✅ **1.13.10 已对齐**
+  （默认 `SaaS`，独立配置键 `upstream.product`，配 `WorkBuddy` 可回滚）
 - 我们多发 `X-Machine-ID` / `X-Session-ID`（**桌面与 CLI 都没有**，`X-Session-ID` 在 CLI 里只是个从不赋值的常量，别按字符串命中误判）；
-  `X-Agent-Runtime` **单列待核**——本地内置 CLI 是 2.156.0（零命中），但 `search.go` 注释称官方 2.166.0 起必发，
+  `X-Agent-Runtime` **单列待核**——本地内置 CLI（2.156.0 / 2.161.0）两次都零命中，但 `search.go` 注释称官方 2.166.0 起必发，
   npm 最新已是 2.172.1，**删之前必须按最新版复核**
 - 上游 `11-128 illegal api invocation from an unapproved channel` 的发生率 ≈ **0.5%**，
   与 prompt 长度**无关**（分桶统计 p≈0.2），更像抽样式通道校验；**全部被降级重试吸收**，
@@ -83,12 +86,14 @@ P2（TRIAGE+CHANGELOG）、P6（CONTRIBUTING+release note）未做。
 
 | 优先 | 项 | 说明 |
 |---|---|---|
-| 1 | **观察 1-2 周** | 1.13.9 后看 `data/request-logs` 的重试率是否下降（不变也正常） |
-| 2 | `X-Product: SaaS` A/B | 唯一未对齐的静态差异；**桌面端与 CLI 默认都是 `SaaS`（两客户端一致）**，只有我们给 `WorkBuddy`。改动会影响用量归因维度 |
+| 1 | **观察 1-2 周** | 1.13.10 后看 `data/request-logs` 的重试率/错误码分布（**判据只能是"不劣化"**：290 请求/天 × 0.5%，检出 2 倍劣化要 ~16 天，别指望显著性） |
+| 2 | ~~`X-Product: SaaS`~~ | ✅ **1.13.10 已做**（默认 `SaaS` + `upstream.product` 回滚键）。后续同类项见下 |
+| 2b | 出站形态收敛（可选，风险递增） | 剩余候选：停发 `X-Machine-ID`/`X-Session-ID`（需开关+灰度）、补 `X-Agent-Type`/`X-Userinfo`（版本敏感）、`X-Private-Data` 取 CLI 语义（`false`）。顺序与判据见 `docs/protocol/cli-client.md` §12 |
 | 3 | P2：`TRIAGE.md` + `CHANGELOG.md` | 症状→符号索引；变更记录 |
 | 4 | P6：`CONTRIBUTING.md` + release note 模板 | 计划收尾 |
 | 5 | 真恢复演练 | `RUNBOOK.md` §4，需停机窗口（**至今未真跑过**） |
 | 6 | P1 剩余档案 | `desktop-events.md` 最值，其余边际递减 |
+| 7 | 拉 CLI `2.172.1` 重跑形态扫描 | 解 UNVERIFIED #18（`X-Agent-Runtime` 到底发不发），决定能不能删那个头 |
 
 ## 7. 环境坑（会再踩，务必先看）
 

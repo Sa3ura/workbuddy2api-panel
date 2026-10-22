@@ -15,12 +15,27 @@ import (
 
 const (
 	// defaultClientVersion 出站 WorkBuddy 客户端版本段（UA 的 `WorkBuddy/<ver>` 与
-	// 白名单头组的 X-IDE-Version）。对齐官方 WorkBuddy Desktop 分发包版本（5.7.7，2026-10-22 从 D:\WorkBuddy 安装包元数据取得）。
+	// 白名单头组的 X-IDE-Version）。对齐官方 WorkBuddy Desktop **分发包版本**。
+	//
+	// 取值路径（版本号会腐烂，别抄死）：`(Get-Item <安装目录>\WorkBuddy.exe).VersionInfo.ProductVersion`。
+	// 2026-10-22 复核为 5.8.3（同日早些时候是 5.7.7，用户更新桌面端后变化）。
 	// config upstream.client_version 可覆盖（空 = 内置默认）。
-	defaultClientVersion = "5.7.7"
-	// defaultCliVersion 出站 UA 中 `CLI/<ver>` 段版本。对齐官方内置 CLI（2.156.0，取自 cli/package.json 的 publishConfig.customPackage.version）。
+	defaultClientVersion = "5.8.3"
+	// defaultCliVersion 出站 UA 中 `CLI/<ver>` 段版本。对齐桌面端内置 CLI，**取包内真实版本**。
+	//
+	// 取值路径：`<安装目录>\resources\app.asar.unpacked\cli\package.json` 的
+	// `publishConfig.customPackage.version`（**不是**顶层的 `version`，那个恒为 0.0.0）。
+	// 2026-10-22 复核为 2.161.0（同期 npm 最新 2.172.1，见 docs/protocol/cli-client.md §11-0）。
 	// config upstream.cli_version 可覆盖（空 = 内置默认）。
-	defaultCliVersion = "2.156.0"
+	defaultCliVersion = "2.161.0"
+
+	// defaultProduct 出站 X-Product 默认值。
+	//
+	// 官方**两个客户端一致**：桌面头构造器 `deploymentType?.trim() || "SaaS"`，
+	// CLI `ProductEndpointHttpInterceptor` 同为 `deploymentType ?? … ?? "SaaS"`。
+	// 源码级证据见 docs/protocol/cli-client.md §5。
+	// config upstream.product 可覆盖（配 "WorkBuddy" 即回退 1.13.9 的行为）。
+	defaultProduct = "SaaS"
 
 	originRefererCN     = "https://www.codebuddy.cn"
 	originRefererGlobal = "https://www.workbuddy.ai"
@@ -337,8 +352,12 @@ func validTraceID(s string) bool {
 	return true
 }
 
-// attributionClientName 生效的用量归属名：ClientName 非空取之；
-// 空默认 "WorkBuddy"（伪造官方桌面端指纹；显式配 "SaaS" 可还原旧行为）。
+// attributionClientName 生效的用量归属名（X-IDE-* 四头 + X-Agent-Purpose 的名字）：
+// ClientName 非空取之；空默认 "WorkBuddy"（伪造官方桌面端指纹）。
+// 显式配 "SaaS" 表示"不发 X-IDE-*"的旧语义（billing UA 也依赖这条，见 billingUA）。
+//
+// 注意（1.13.10 起）：**它不再决定 X-Product**——那个改由 productName() 决定，
+// 两者已解耦。原因见 injectAttribution 的注释。
 func (c *Client) attributionClientName() string {
 	if c != nil && c.ClientName != "" {
 		return c.ClientName
@@ -346,27 +365,42 @@ func (c *Client) attributionClientName() string {
 	return "WorkBuddy"
 }
 
-// injectAttribution 注入用量归属头（X-Agent-Purpose / X-IDE-* / X-Product）。
+// productName 生效的 X-Product 取值：Client.Product 非空取之，否则内置默认 "SaaS"。
+//
+// 为什么默认是 SaaS 而不是 WorkBuddy：官方**桌面端与 CLI 两个独立客户端**的默认值
+// 都是 SaaS（`deploymentType` 缺省时），`WorkBuddy` 只在部署类型被显式配置时出现。
+// 我们此前默认发 WorkBuddy，是唯一一处「官方两客户端都确定、只有我们不同」的静态差异。
+// 源码级证据：docs/protocol/cli-client.md §5。
+func (c *Client) productName() string {
+	if c != nil && c.Product != "" {
+		return c.Product
+	}
+	return defaultProduct
+}
+
+// injectAttribution 注入用量归属头：X-Private-Data / X-Agent-Purpose / X-IDE-* / X-Product。
 // 仅在 chat/completions 路径生效（ChatHeaders 调用）。
 //
-// 默认（ClientName 空）即对齐官方 WorkBuddy 桌面端指纹：X-Agent-Purpose="conversation"
-// + X-IDE-Name/Type/Product="WorkBuddy" + X-IDE-Version=client_version，上游用量归因
-// 不再出现 client/agentPurpose 为空的「网关特征」。显式 ClientName="SaaS" 还原旧行为
-// （仅 X-Product="SaaS"，不设 X-IDE-*）；配其他值则四头跟随该值。
+// **1.13.10 拆分**：此前 `client_name` 一个键同时决定 X-Product 与 X-IDE-* 四头，
+// 且 `client_name="SaaS"` 分支会把 X-IDE-* 整组砍掉——结果是"只想把 X-Product 改成
+// 官方默认的 SaaS"做不到，必须连 IDE 四头一起丢。现在两个维度独立：
+//
+//	X-Product        ← productName()（默认 SaaS，upstream.product 可改）
+//	X-IDE-* / X-Agent-Purpose ← attributionClientName()（默认 WorkBuddy，client_name 可改）
+//
+// 兼容：`client_name="SaaS"` 仍是"不发 X-IDE-*"的旧语义，X-Product 也仍是 SaaS。
+// 想完整回退 1.13.9 的取值：`upstream.product = "WorkBuddy"`。
 func (c *Client) injectAttribution(req *http.Request) {
-	name := c.attributionClientName()
-	// X-Private-Data: true —— 官方头构造器无条件设置（buildHeaders），与 X-Product 同批。
-	// 放在 SaaS 分支之前：官方即使 X-Product=SaaS 也照样带这个头。
+	// X-Private-Data: true —— 官方桌面端头构造器无条件设置（与 X-Product 同批）。
+	// 放在 IDE 分支之前：官方即使 X-Product=SaaS 也照样带这个头。
 	req.Header.Set("X-Private-Data", "true")
-	if name == "SaaS" {
-		req.Header.Set("X-Product", "SaaS")
-		return
+	if name := c.attributionClientName(); name != "SaaS" {
+		req.Header.Set("X-Agent-Purpose", "conversation")
+		req.Header.Set("X-IDE-Name", name)
+		req.Header.Set("X-IDE-Type", name)
+		req.Header.Set("X-IDE-Version", c.clientVersion())
 	}
-	req.Header.Set("X-Agent-Purpose", "conversation")
-	req.Header.Set("X-IDE-Name", name)
-	req.Header.Set("X-IDE-Type", name)
-	req.Header.Set("X-IDE-Version", c.clientVersion())
-	req.Header.Set("X-Product", name)
+	req.Header.Set("X-Product", c.productName())
 }
 
 // injectClientIP 在 PassthroughIP 开启时把 clientIP 参数透传给上游（三等价头）。

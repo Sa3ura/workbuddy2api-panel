@@ -48,7 +48,7 @@ func TestUserAgentDefaultEmptyKeepsClientUA(t *testing.T) {
 			call: func(c *Client) error {
 				return c.ReportChatActivity(&auth.Auth{AccessToken: "at", UID: "u1"}, "cid", "")
 			},
-			wantUA: "WorkBuddy/5.7.7",
+			wantUA: "WorkBuddy/" + defaultClientVersion,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -159,13 +159,19 @@ func TestFetchModelsUsesConfiguredUA(t *testing.T) {
 
 // --- A 段：UA 对齐官方 WorkBuddy 三段式 ---
 
+// UA 形状断言**不写死版本号**（写死就会腐烂：5.5.4 → 5.7.7 → 5.8.3 已经过三轮）。
+// 这里从代码常量拼出期望值，只钉形状；版本值本身由 headers.go 的
+// defaultClientVersion / defaultCliVersion 单点维护（取值路径见那里的注释）。
 const (
-	defaultUAString      = "WorkBuddy/5.7.7 WorkBuddy/5.7.7 CLI/2.156.0"
 	explicitString       = "MyCustomAgent/3.1"
-	clientVerUAString    = "WorkBuddy/6.0.0 WorkBuddy/6.0.0 CLI/2.156.0"
-	billingUAWorkBuddy   = "WorkBuddy/5.7.7"
-	billingUACustomVer   = "WorkBuddy/6.0.0"
 	billingUAAgentString = "BillingAgent/1"
+)
+
+var (
+	defaultUAString    = "WorkBuddy/" + defaultClientVersion + " WorkBuddy/" + defaultClientVersion + " CLI/" + defaultCliVersion
+	clientVerUAString  = "WorkBuddy/6.0.0 WorkBuddy/6.0.0 CLI/" + defaultCliVersion
+	billingUAWorkBuddy = "WorkBuddy/" + defaultClientVersion
+	billingUACustomVer = "WorkBuddy/6.0.0"
 )
 
 // TestUserAgentDefaultWorkBuddyShape 默认（无任何配置）聊天/刷新出站 UA =
@@ -253,7 +259,7 @@ func TestUserAgentClientVersionOverride(t *testing.T) {
 // `WorkBuddy/<clientVersion>`（不带 CLI 段，对齐官方 banner/check-in 显式头组）。
 func TestBillingUA_WhenClientNameSet(t *testing.T) {
 	a := &auth.Auth{AccessToken: "at", UID: "u1"}
-	// 默认 client_version → WorkBuddy/5.7.7
+	// 默认 client_version → WorkBuddy/<defaultClientVersion>
 	c := &Client{
 		HTTP: &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
 			if got := r.Header.Get("User-Agent"); got != billingUAWorkBuddy {

@@ -57,6 +57,7 @@
     "client_version": "",
     "cli_version": "",
     "client_name": "",
+    "product": "",
     "device_token": "",
     "device_token_file": "",
     "passthrough_ip": false

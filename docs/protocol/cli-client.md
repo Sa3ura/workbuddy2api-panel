@@ -2,7 +2,8 @@
 
 > **档案状态**：🟢 已校准（**源码级 A**：客户端包逐字面量取证）
 > **最后核对**：2026-10-22 · **核对方式**：只读扫描本机客户端包（`app.asar` + `app.asar.unpacked/cli/dist`），**不发请求、不改安装目录**
-> **样本**：WorkBuddy Desktop `5.7.7`（Electron）+ 其内置 `@tencent-ai/codebuddy-code` `2.156.0`
+> **样本**：WorkBuddy Desktop `5.8.3`（Electron）+ 其内置 `@tencent-ai/codebuddy-code` `2.161.0`
+> （首轮取证在 `5.7.7 / 2.156.0` 上完成，2026-10-22 桌面端更新后**全表复核一遍，结论未变**）
 > **影响级别**：L0（头族退化 = 全量被拒，最先炸的就是这里）
 
 ## 0. 这份档案回答什么问题
@@ -25,13 +26,13 @@
 |---|---|
 | 桌面端 | `D:\WorkBuddy\`（`WorkBuddy.exe` + `resources\app.asar` 203 MB） |
 | CLI | `D:\WorkBuddy\resources\app.asar.unpacked\cli\`（345 个文件） |
-| CLI 包名 / 真实版本 | `@tencent-ai/codebuddy-code` **2.156.0**（`package.json` 的 `publishConfig.customPackage.version`；顶层 `version` 字段是 `0.0.0`，不可用） |
+| CLI 包名 / 真实版本 | `@tencent-ai/codebuddy-code` **2.161.0**（`package.json` 的 `publishConfig.customPackage.version`；顶层 `version` 字段是 `0.0.0`，不可用） |
 | 包内代号 | `package.json` 的 `name` 是 `@genie/agent-cli` |
 | CLI 入口 | `bin/codebuddy` / `bin/cbc`（bin 名：`codebuddy`、`codebuddy-code`、`cbc`） |
 | 主要证据文件 | `cli\dist\codebuddy-headless.js`（11.9 MB，未混淆，可直读）、`cli\dist\codebuddy-lite-wb.mjs`（8.6 MB，同源另一构建） |
 
 > **CLI 不需要另外下载**：它是桌面版的**出厂依赖**，随安装包一起落盘，并且是桌面端实际 spawn 的那一份。
-> 拿它做逆向比从 npm 装一份更权威——版本号与我们 UA 里的 `CLI/2.156.0` 完全对应。
+> 拿它做逆向比从 npm 装一份更权威——它就是桌面端实际 spawn 的那一份（版本号与我们 UA 的 `CLI/<ver>` 段同源）。
 
 ## 2. 证据表（字面量命中次数）
 
@@ -44,7 +45,7 @@
 | `X-Custom-Channel-Id` | 1 | **0** | 桌面独有 |
 | `X-Machine-ID` | **0** | **0** | 两个客户端都没有 |
 | `X-Session-ID` | 0 | 1（仅常量，从不赋值） | 两个客户端实际都没有 |
-| `X-Agent-Runtime` | **0** | **0** | ⚠️ **版本待核**（见 §11-0：本地 2.156.0 零命中，但本仓库 `search.go` 注释称「官方 2.166.0 起必发」；npm 最新已是 2.172.1） |
+| `X-Agent-Runtime` | **0** | **0** | ⚠️ **版本待核**（见 §11-0：本地 2.156.0 与 2.161.0 两次都零命中，但本仓库 `search.go` 注释称「官方 2.166.0 起必发」；npm 最新已是 2.172.1） |
 | `X-Product` | 10 | 2 | 都发，**默认值相同**（§5） |
 | `X-Private-Data` | 2 | 1 | 都发，**取值语义不同**（§6） |
 | `X-Agent-Type` | 0 | 1 | CLI 有、我们无 |
@@ -93,7 +94,7 @@ let a = await new (new (r())())({ appKey: i, dllPath: process.env.WORKBUDDY_QIME
 |---|---|
 | `X-Machine-ID` | 桌面 0 命中、CLI 0 命中 |
 | `X-Session-ID` | 桌面 0 命中；CLI **字面量仅 1 处**（常量赋值 `ei.SESSION_ID_HEADER="X-Session-ID"`，外加 1 处导出列表引用），**没有任何一处把它写进请求头**（无 `setHeaderCaseInsensitive(…, SESSION_ID_HEADER, …)` 调用） |
-| `X-Agent-Runtime` | 桌面 0 命中、CLI（2.156.0）0 命中 —— **但结论不可靠**：`internal/upstream/search.go` 的注释明确写「官方 2.166.0 起必发，无 runtime 时回落 `"other"`」，说明**官方 CLI 已前进到 ≥2.166.0，本地这份 2.156.0 落后**（§11-0）。故本条**不能**作为"删掉它"的依据 |
+| `X-Agent-Runtime` | 桌面 0 命中、CLI（2.156.0）0 命中 —— **但结论不可靠**：`internal/upstream/search.go` 的注释明确写「官方 2.166.0 起必发，无 runtime 时回落 `"other"`」，说明**官方 CLI 已前进到 ≥2.166.0，本地这份（2.156.0 / 2.161.0）都落后**（§11-0）。故本条**不能**作为"删掉它"的依据 |
 
 这三项都是网关按 uid 派生或自造的（`deriveAccountStableID` / 固定常量），
 **没有任何官方客户端会发**。它们构成我们出站形态里唯一一组"官方永不会出现"的特征。
@@ -147,11 +148,25 @@ el[cl.PRIVATE_DATA_HEADER] = ed ? "false" : "true";
 另外三个头 CLI **定义了常量但从不作为请求头发送**，别误判：
 `X-Data-Tag`（只在一条遥测上报里用）、`X-Model-ID`、`X-Product-Version`。
 
+### 7.1 ID 形态：chat 路径是「UUID 去横线」= 32 hex，不是带横线的 UUID
+
+**这条是给自己纠错留的**：本轮曾据 `randomUUID()` 一处的印象，打算把网关的消息/请求 ID
+从 32 hex 改成带横线的 UUID（计划里的 T2）。**核实后撤回**——那是把两条不同路径搞混了：
+
+| 路径 | ID 生成 | 形态 |
+|---|---|---|
+| **CLI → 云端 chat**（`X-Conversation-Message-ID` / `X-Request-ID`） | `(0,mr.nH)().replace(/-/g,"")` — 生成 UUID 后**去掉横线** | **32 hex** |
+| 桌面 → 本机 ACP 网关（`applyGatewayHeaders`） | `(0,W.randomUUID)()` | 带横线的 UUID |
+| B3 链路族 | `randomBytes(16/8).toString('hex')` | 32 / 16 hex |
+
+我们发的是 32 hex，**与云端 chat 路径一致，本来就是对的**。改它反而会变成"非官方形态"。
+教训：同一个客户端里可以有多种 ID 形态，**取证必须落到具体路径上**，不能拿一处代码代表全部。
+
 ## 8. 我们当前是「混合形态」，两个官方客户端都不长这样
 
 | 维度 | 桌面端 | CLI | 我们 |
 |---|---|---|---|
-| UA 三段式 `WorkBuddy/<v> … CLI/<v>` | 有 | 见 §11（未确认独立运行时） | 有（桌面值 5.7.7 + 2.156.0） |
+| UA 三段式 `WorkBuddy/<v> … CLI/<v>` | 有 | 见 §11（独立运行时未逐字确认） | 有（桌面值 5.8.3 + 2.161.0） |
 | `X-Custom-Channel-Id: unknown` | 有 | **无** | 有（桌面独有项） |
 | `X-Device-Token` | 有 | **无** | 无 |
 | `X-Device-Id-List` | 有 | **无** | 无 |
@@ -167,7 +182,7 @@ el[cl.PRIVATE_DATA_HEADER] = ed ? "false" : "true";
 |---|---|
 | 「`X-Machine-ID` / `X-Session-ID`：官方 asar 全文检索**零命中**」 | 桌面端零命中；**CLI 有 `X-Session-ID` 常量但从不赋值**；`X-Agent-Runtime` 两边都零命中（新增） |
 | 「设备三件套里只有①可完全照抄」「②③需腾讯原生 SDK，是否优于不发未经验证」 | ②③ 的结论改成**结构性结论**：它们是桌面端独有头，CLI 零发送 → 我们不发即对齐 CLI，不必再做 A/B |
-| §5 版本常量示例 `5.5.4` / `2.137.1` | 代码实际默认已是 `5.7.7` / `2.156.0`（`headers.go` 的 `defaultClientVersion` / `defaultCliVersion`） |
+| §5 版本常量示例 `5.5.4` / `2.137.1` | 代码默认值当时已是 `5.7.7` / `2.156.0`；**1.13.10 起为 `5.8.3` / `2.161.0`**，且文档改为只写取值路径不写死数字（`headers.go` 的 `defaultClientVersion` / `defaultCliVersion`） |
 
 ## 10. 复核方式（只读，可安全入库，不含任何真实值）
 
@@ -195,10 +210,10 @@ for h in ["X-Session-ID", "X-Agent-Type", "X-Private-Data"]:
 
 ## 11. 局限与未验证项
 
-**0. 版本代差（最重要的一条，先看这个）。** 本档案取证的是**桌面端内置 CLI `2.156.0`**，
-而 npm 上 `@tencent-ai/codebuddy-code` 最新已到 **`2.172.1`**（2026-10-22 查 registry）。
-本仓库 `internal/upstream/search.go` 的注释还写着「`X-Agent-Runtime`：官方 **2.166.0** 起必发」——
-即**官方 CLI 已经越过 2.156.0 好几个版本，期间新增过头**。
+**0. 版本代差（最重要的一条，先看这个）。** 本档案两次取证都在**桌面端内置 CLI**上做
+（首轮 `2.156.0`，复核 `2.161.0`），而 npm 上 `@tencent-ai/codebuddy-code` 最新已到 **`2.172.1`**
+（2026-10-22 查 registry）。本仓库 `internal/upstream/search.go` 的注释还写着「`X-Agent-Runtime`：
+官方 **2.166.0** 起必发」——即**官方 CLI 已经越过我们手上的版本，期间新增过头**。
 
 因此本档案的每条结论都要分两类看：
 
@@ -226,7 +241,7 @@ for h in ["X-Session-ID", "X-Agent-Type", "X-Private-Data"]:
 | ① `X-Device-Id-List`（QIMEI36） | "收益未证、是否优于不发没证据" | **不做**，且理由升级：CLI 零发送 = 不发即对齐；且 SDK 无 linux 分支 |
 | ② `X-Device-Token` | "无法离线合成" | **不做**，理由不变（桌面独有 + 按设备签发，共用=多号关联） |
 | ③ 删 `X-Machine-ID` / `X-Session-ID` / `X-Agent-Runtime` | 待 A/B 的 2 个头 | `X-Machine-ID` / `X-Session-ID` 定论：桌面与 CLI（2.156.0）都没有，性质为"官方永不会出现的特征"；`X-Agent-Runtime` **单列待核**（可能正是 2.166.0+ 的新增头，删之前必须按最新版复核，见 §11-0） |
-| `X-Product: SaaS` | 待办 #2（1 份证据） | 依据升级为两客户端一致，**建议提为最高优先级** |
+| `X-Product: SaaS` | 待办 #2（1 份证据） | ✅ **已落地（1.13.10）**：默认改 `SaaS`，并拆出独立键 `upstream.product`；依据是两客户端一致 |
 | 补 `X-Agent-Type` / `X-Userinfo` | 未列入 | 新增候选（CLI 有、我们无），**需先定形态再补**：只补头不改 UA，混合形态问题（§8）不会消失 |
 
 ## 相关代码与档案

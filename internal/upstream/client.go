@@ -742,15 +742,23 @@ type Client struct {
 	UserAgent string
 
 	// ClientVersion WorkBuddy 客户端版本段（出站 UA 的 `WorkBuddy/<ver>` + X-IDE-Version）。
-	// 空 = 内置默认（对齐官方 5.7.7 分发包）。
+	// 空 = 内置默认（对齐官方当前分发包；取值路径见 headers.go 的 defaultClientVersion）。
 	ClientVersion string
 
-	// CliVersion 出站 UA 中 `CLI/<ver>` 段版本。空 = 内置默认（官方内置 CLI 2.156.0）。
+	// CliVersion 出站 UA 中 `CLI/<ver>` 段版本。空 = 内置默认（对齐桌面端内置 CLI；
+	// 取值路径见 headers.go 的 defaultCliVersion）。
 	CliVersion string
 
-	// ClientName 用量归属头取值（X-Product / X-IDE-Name / X-IDE-Type / X-IDE-Version）。
-	// 空 = 旧行为：X-Product="SaaS"，不设 X-IDE-*（向后兼容，不突变归因）。
+	// ClientName 用量归属名（X-IDE-Name/Type/Version + X-Agent-Purpose）。
+	// 空 = 默认 "WorkBuddy"（对齐官方桌面端）；配 "SaaS" = 不设 X-IDE-*（旧语义）。
+	//
+	// 1.13.10 起**不再决定 X-Product**（改用下方的 Product），见 injectAttribution。
 	ClientName string
+
+	// Product 出站 X-Product 头取值（用量归因维度）。
+	// 空 = 内置默认 "SaaS"（官方桌面端与 CLI 两个客户端的 deploymentType 缺省值都是 SaaS）。
+	// 回退 1.13.9 行为（X-Product=WorkBuddy）：显式配 "WorkBuddy"。
+	Product string
 
 	// PassthroughIP 是否透传客户端 IP 给上游（X-Forwarded-For/X-Real-IP 首段）。
 	// 缺省 false（反代安全边界）；handler 在 chat 路径按请求把 clientIP 传入 ChatStream。

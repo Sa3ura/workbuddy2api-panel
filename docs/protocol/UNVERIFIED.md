@@ -26,7 +26,7 @@
 | 14 | 流被截断时 `tool_calls.arguments` 为半截 JSON，须丢弃而非补 `{}` | `upstream/truncation.go` | L1 | 已有单测覆盖语义 | 🟡 **语义已锁定（2026-10-22）**：`isTruncatedArguments` 三态（非空不可解析=截断 / 空串=合法 / 能解析但类型错=交给客户端）有测试；**上游是否真会在 EOF 处产生半截参数属观测事实，未单独复现**。见 `wire-expectations.md` §5 |
 | 15 | `glm-5v-turbo` / `kimi-k2.7` / `kimi-k2.6` 的 `credits` 解析为字面量 `credits`（不是 `x0.xx`） | 2026-10-22 `doctor -models` 实测 | L1（保底倍率判据退化） | 下次 `-models` 复核是否持续 | 🟡 观察中（持续则扩展解析，见 `model-catalog.md` §5.1） |
 | 16 | 官方 **CLI 独立运行**时是否设置 `User-Agent`、设成什么 | 静态逆向（`cli/dist/codebuddy-headless.js` 全文 `WorkBuddy/` 零命中，仅见 axios 库兜底 `axios/<ver>` 与 UA 合并机制旁证 `X-Skip-User-Agent-Merge`） | L0 | **动态取证**：独立装 CLI + 本地代理抓一次真实请求 | ⬜ **B/未验**（未定位到注入点≠不发）。见 `cli-client.md` §11 |
-| 18 | `X-Agent-Runtime` 到底是不是官方新版本必发头 | 本仓库 `search.go` 注释称「官方 2.166.0 起必发」；但本地内置 CLI 仅 **2.156.0**（全文零命中），npm 最新为 **2.172.1** | L0（决定能不能删这个头） | 拉 `2.172.1` 包重跑 `cli-client.md` §10 扫描脚本 | ⬜ **B/未验**（版本代差，结论双向都可能翻） |
+| 18 | `X-Agent-Runtime` 到底是不是官方新版本必发头 | 本仓库 `search.go` 注释称「官方 2.166.0 起必发」；但本地内置 CLI **2.161.0 仍零命中**（首轮 2.156.0 也零命中），npm 最新为 **2.172.1** | L0（决定能不能删这个头） | 拉 `2.172.1` 包重跑 `cli-client.md` §10 扫描脚本 | ⬜ **B/未验**（两次本地复核都零命中，但都低于注释声称的 2.166.0 以上版本；结论双向都可能翻） |
 | 17 | CLI 实际发出的 `X-Userinfo`（base64 内容）、`X-Agent-Type` 取值、`X-Private-Data` 真实默认 | 静态逆向只证明「有拼装点」，取不到运行值 | L1（形态对齐） | 同上（动态取证） | ⬜ **B/未验**。见 `cli-client.md` §7、§11 |
 
 ## 校准规则

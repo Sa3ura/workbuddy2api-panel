@@ -79,7 +79,7 @@
 | `UNVERIFIED.md` | B | ✅ 待验证事实清单（探针校准的靶子） |
 | `growth-report.md` | **A** | ✅ **已校准**（2026-10-22 doctor 实测：streak/tasks/buddy/lottery 键骨架 + 17 任务码 + 猫 instance_id 漂移已修） |
 | `headers.md` | **A** | ✅ **已校准**（2026-10-22 `doctor -headers`：四类头族 28/8/12/30 个头实测 + 风控信号表） |
-| `cli-client.md` | **A（源码级）** | ✅ **已校准**（2026-10-22：官方 CLI `@tencent-ai/codebuddy-code` 2.156.0 与桌面 asar 逐字面量对照 → 设备三件套为桌面端独有、三个自造头两边皆无、`X-Product` 两客户端默认均 `SaaS`） |
+| `cli-client.md` | **A（源码级）** | ✅ **已校准**（2026-10-22：官方 CLI 与桌面 asar 逐字面量对照，**两次版本复核**（CLI 2.156.0 → 2.161.0 / 桌面 5.7.7 → 5.8.3）结论一致 → 设备三件套为桌面端独有、自造头两边皆无、`X-Product` 两客户端默认均 `SaaS`） |
 | `desktop-events.md` | — | ⬜ 待建 |
 | `model-catalog.md` | **A** | ✅ **已校准**（2026-10-22 `doctor -models`：22 模型全表 + 档位/倍率/促销实测） |
 | `thinking-effort.md` | **A**（形态）/ B（行为） | ✅ **已校准形态**（档位枚举与每模型默认档实测；注入/降级为代码实现） |
