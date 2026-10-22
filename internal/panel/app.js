@@ -345,6 +345,11 @@ $('btnKey').onclick = async () => {
   } catch (e) { $('keyErr').hidden = false; }
 };
 $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnKey').click(); });
+// 阻止表单提交的职责必须在这里，不能靠 index.html 的 onsubmit 内联属性：
+// CSP 是 `script-src 'self'`（无 unsafe-inline / unsafe-hashes），内联处理器会被
+// 拦下并报 “Executing inline event handler violates the following Content Security
+// Policy directive”，而拦掉之后回车仍会真实提交表单 → 页面刷新、密钥弹窗状态丢失。
+$('keyInput').closest('form')?.addEventListener('submit', e => e.preventDefault());
 
 /* ── 路由 ─────────────────────────────────────────────────────────── */
 /* 积分包明细共享缓存：「积分构成」视图与首页「积分到期提醒」卡片共用同一份

@@ -386,3 +386,20 @@ WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重�
 1. **`'use strict'` 下的隐式全局赋值是一类看不见的雷**。这类 bug 只在特定数据路径上触发，编译、后端测试、正常路径的手测全都不报错。用脚本扫过一遍全库（`^\s+name =` 且无同名声明），本次只有 `detail` 一处，其余 8 处是多重声明误报。
 2. **静默 catch 是排障的天敌**。`quiet` 该只影响「弹不弹 UI 提示」，不该影响「留不留痕」。
 3. **表格渲染要排在同一段代码的最前面**。统计数据是锦上添花，池子列表是命根子，顺序即优先级。
+
+### 1.13.12：CSP 拦掉内联 `onsubmit`，回车提交把密钥弹窗刷掉
+
+键盘输入 api_key 后按回车 → 控制台报
+`Executing inline event handler violates the following Content Security Policy directive 'script-src 'self''`，
+同时页面刷新、弹窗关闭、密钥像"没填进去"。
+
+**根因**：`index.html` 的密钥表单写了 `onsubmit="return false"`。CSP 是 `script-src 'self'`
+（刻意不留 unsafe-inline / unsafe-hashes，见 `index.go`），内联处理器被拦，
+**但默认行为照常发生**——表单还是提交了，于是整页跳转。拦掉的行为不等于取消行为，
+这类"报个错但照样出事"的形态比直接失效更难查。
+
+**修法**：删掉内联属性，改由 `app.js` 给表单挂 submit 监听 `preventDefault()`。
+
+**守卫**：新增 `TestIndexHTMLHasNoInlineEventHandlers`，扫描 `index.html` 里
+「空白 + on + 字母 + =」形态的属性并失败。写这条测试时注意：**注释里出现同样字样也会被
+命中**（本次就踩了），所以注释要绕开写法，别把守卫写松。
