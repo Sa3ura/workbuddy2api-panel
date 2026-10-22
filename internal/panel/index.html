@@ -714,7 +714,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
            （数据来自 state.json，不经上游），「检查」按钮改为拉取逐包明细的增强入口。 -->
       <div class="box" id="expBox">
         <header>
-          <h3>积分到期提醒<span class="hint">按最近到期批次估算 · 日均需耗 = 批次剩余 ÷ 距到期天数 · 上游按失效时刻先后自动优先扣减（FEFO）</span></h3>
+          <h3 title="按最近到期批次估算 · 日均需耗 = 批次剩余 ÷ 距到期天数 · 上游按失效时刻先后自动优先扣减（FEFO）">积分到期提醒<span class="hint">按最近到期批次估算 · 日均需耗 = 剩余 ÷ 剩余天数 · FEFO 优先扣减</span></h3>
           <span class="grow"></span>
           <span class="note" id="expNote"></span>
           <button class="xs" id="btnExpFold" aria-expanded="true">收起</button>
