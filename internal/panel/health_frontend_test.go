@@ -38,7 +38,7 @@ vm.runInContext(healthSrc + '\nthis.healthStatusLevel = healthStatusLevel;' +
   'this.healthWorst = healthWorst; this.healthSummaryText = healthSummaryText;' +
   'this.healthNonGreen = healthNonGreen; this.healthRowHtml = healthRowHtml;' +
   'this.healthDetailHtml = healthDetailHtml; this.healthDetailWrapHtml = healthDetailWrapHtml;' +
-  'this.shortVer = shortVer;', ctx);
+  'this.shortVer = shortVer; this.degradeLeftText = degradeLeftText;', ctx);
 
 const out = {
   summary: ctx.healthSummaryText({ summary: { accounts: 4, green: 3, yellow: 1, red: 0 } }),
@@ -73,6 +73,12 @@ const out = {
   shortEmpty: ctx.shortVer(''),
   wrapHidden: ctx.healthDetailWrapHtml({ probes: [{ name: 'account', status: 'green' }] }, false),
   wrapShown: ctx.healthDetailWrapHtml({ probes: [{ name: 'account', status: 'green' }] }, true),
+  dlEmpty: ctx.degradeLeftText('', 0),
+  dlInvalid: ctx.degradeLeftText('not-a-date', 0),
+  dlExpired: ctx.degradeLeftText('2026-10-21T10:00:00+08:00', Date.parse('2026-10-21T12:00:00+08:00')),
+  dl320min: ctx.degradeLeftText('2026-10-21T18:40:00+08:00', Date.parse('2026-10-21T13:20:00+08:00')),
+  dl30min: ctx.degradeLeftText('2026-10-21T13:50:00+08:00', Date.parse('2026-10-21T13:20:00+08:00')),
+  dl26h: ctx.degradeLeftText('2026-10-22T15:20:00+08:00', Date.parse('2026-10-21T13:20:00+08:00')),
 };
 process.stdout.write(Object.keys(out).map(function (k) { return k + '=' + String(out[k]); }).join('\n'));
 `
@@ -222,5 +228,23 @@ func TestAppJSHealthDetailWrap(t *testing.T) {
 	}
 	if s := got["wrapShown"]; !strings.Contains(s, "account") {
 		t.Errorf("已展开的容器应含探针明细：%s", s)
+	}
+}
+
+// 降级剩余时长文案：写反了不会报错，只会让用户永远看不到时限。
+func TestAppJSDegradeLeftText(t *testing.T) {
+	got := runHealthJSHarness(t)
+	want := map[string]string{
+		"dlEmpty":   "",             // 未降级
+		"dlInvalid": "",             // 脏数据不能崩，也不能瞎显示
+		"dlExpired": "",             // 已过期不能显示"还剩 -120 分"
+		"dl320min":  "还剩 5 小时 20 分", // 5h20m
+		"dl30min":   "还剩 30 分",      // 不足 1 小时
+		"dl26h":     "还剩 1 天 2 小时",  // 跨天用"天/小时"，不显示分钟
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
 	}
 }

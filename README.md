@@ -925,6 +925,45 @@ http://127.0.0.1:7863/panel/
 
 账号 / 数据通过 `docker-compose.yml` 卷挂载持久化：`./auths`、`./data`、`./config.json`。
 
+### 日志：上限、留存与统计口径
+
+**上限**：docker compose 默认用 `json-file` 驱动且**不设上限**，长期运行会把宿主机磁盘吃满
+（这类事故来得很慢，很难联想到是容器日志）。本仓库的 `docker-compose.yml` 已设
+`max-size: 20m` × `max-file: 5`，即单个容器最多占 100MB。
+
+**留存**：容器日志**在容器重建后即丢失**——升级、改 `docker-compose.yml`、`--force-recreate`
+都会重建。所以升级前先导出一份，否则历史就没了：
+
+```bash
+docker compose logs --timestamps wb2api > /var/log/wb2api-$(date +%F_%H%M).log
+```
+
+**统计口径**：要回答"上游拒绝了多少次 / 重试了几次"这类**历史趋势**问题，不要用容器日志，
+用 `data/request-logs/*.jsonl`——按天分文件、跨重启保留，`attempts` 字段直接反映重试：
+
+```bash
+python3 - <<'PY'
+import glob, json, collections
+for f in sorted(glob.glob('data/request-logs/*.jsonl')):
+    rows = [json.loads(l) for l in open(f, encoding='utf-8') if l.strip()]
+    if not rows: continue
+    retried = [r for r in rows if (r.get('attempts') or 0) > 1]
+    print(f.split('/')[-1][9:19], f'请求 {len(rows):>4}',
+          f'状态 {dict(collections.Counter(r.get("status") for r in rows))}',
+          f'重试 {len(retried)}', f'重试成功 {sum(1 for r in retried if r.get("ok"))}')
+PY
+```
+
+**降级状态**：上游渠道校验拒绝（`11-128`）会让网关把**全局** system 提示词换成中性版，
+直到次日 00:00 CST。这个状态显示在面板侧栏（`降级中 · 还剩 X 小时`），也可从接口读：
+
+```bash
+curl -sS -H "Authorization: Bearer $KEY" http://127.0.0.1:7863/panel/api/overview \
+  | grep -o '"degraded_until":"[^"]*"'
+```
+
+空串 = 未降级。重启进程可立即清除（状态只在内存）。
+
 ### 工具脚本
 
 | 脚本 | 用途 |

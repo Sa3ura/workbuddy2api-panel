@@ -38,7 +38,7 @@ import (
 // ⚠️ 这个常量是 CI 的 tag 断言依据：打 tag 前必须先改这里，且 tag（去掉 -panel 后缀）必须等于它。
 // 它**只表示源码版本**，不含 commit——commit 由 buildCommit（ldflags 注入）单独给出，
 // 二者拼起来才是部署时看到的版本串，见 versionString。
-const appVersion = "1.13.3-panel"
+const appVersion = "1.13.4-panel"
 
 // buildCommit 构建时注入的 git 提交，由 ldflags 赋值：
 //
@@ -381,6 +381,9 @@ func main() {
 	up.SetCreditObserver(creditHist.Observe)
 	log.Printf("[credithist] 积分历史已启用: %s", stateSibling(cfg.StateFile, "credit-history.json"))
 
+	// 面板先于 handler 构造（handler 依赖池/用量，面板只需要一个只读回调），
+	// 于是用闭包回填：handler 建好后再把它的降级状态接进来。
+	var degradeUntil func() time.Time
 	pn := panel.New(panel.Config{
 		Pool:        p,
 		Usage:       rec,
@@ -391,8 +394,14 @@ func main() {
 		APIKey:      cfg.APIKey,
 		RedisMode:   redisMode,
 		StickyCount: sessCount,
-		Version:     versionString(),
-		Live:        live,
+		DegradedUntil: func() time.Time { // 降级期结束时刻（零值=未降级）
+			if degradeUntil == nil {
+				return time.Time{}
+			}
+			return degradeUntil()
+		},
+		Version: versionString(),
+		Live:    live,
 		// 模型上限探测数据（scripts/probe_max_tokens.py --panel-out 写入）：
 		// 与 state 文件同目录，缺省 data/output_probes.json。
 		ProbeFile: stateSibling(cfg.StateFile, "output_probes.json"),
@@ -419,6 +428,7 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, pn.Logs()))
 	server.SetChatLogOutput(io.MultiWriter(os.Stdout, pn.Logs()))
 
+	degradeUntil = nil // 占位：真正的赋值在 handler 构造之后（见下方）
 	h := server.NewHandler(server.Config{
 		Pool:         p,
 		Upstream:     up,
@@ -442,6 +452,9 @@ func main() {
 		// Live 为 nil 的裸用/测试路径。
 		ModelsHidden: cfg.Models.Hidden,
 	})
+
+	// handler 已建好 → 把降级状态接给面板（此前是 nil，面板会显示"未降级"）。
+	degradeUntil = h.DegradedUntil
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -25,6 +25,18 @@ func (g *degradeGate) Active() bool {
 	return time.Now().Before(g.until)
 }
 
+// Until 当前降级期结束时刻；未处于降级期返回零值。
+// 与 Active() 的区别是给出"还剩多久"，供面板展示——只告诉用户"降级中"而不给时限，
+// 体验上等于没有信息。
+func (g *degradeGate) Until() time.Time {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !time.Now().Before(g.until) {
+		return time.Time{}
+	}
+	return g.until
+}
+
 // Trigger 触发降级，直到次日 00:00 CST（Asia/Shanghai）。
 // 已在降级期内则不续期（保持最早触发点的 00:00 重置语义）。
 func (g *degradeGate) Trigger() {

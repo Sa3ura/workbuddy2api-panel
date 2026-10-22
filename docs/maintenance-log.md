@@ -178,3 +178,23 @@ PUID=10001 / PGID=10001        # 必须与 auths/、data/ 属主一致
 **教训**：这两条都属于「DOM 状态 / 布局」类缺陷——node 测试只跑纯函数，模拟 DOM 成本高，
 所以只能靠人眼在真环境里发现。因此 `shortVer` 与 `healthDetailWrapHtml` 都刻意做成**纯函数**
 （可被 node harness 断言），把能测的部分从不可测的部分里切出来。
+
+### 1.13.4：可观测性补强（2026-10-22）
+
+上线后暴露的三处"看不见"，一次补齐：
+
+| 项 | 问题 | 修法 |
+|---|---|---|
+| **容器日志无上限** | docker compose 默认 `json-file` 不设上限，长期跑会吃满宿主机磁盘（增长慢、极难联想到） | `docker-compose.yml` 加 `logging: max-size 20m × max-file 5`（上限 100MB） |
+| **降级状态不可见** | 11-128 被上游通道校验拒绝后，网关把**全局** system 提示词换成中性版直到次日 00:00；用户只看到"回答风格突然变了"，无任何提示 | `degradeGate.Until()` → `Handler.DegradedUntil()` → `panel.Config.DegradedUntil` → `overview.degraded_until` → 侧栏显示「降级中 · 还剩 X」 |
+| **日志留存无约定** | 容器重建即丢日志，`docker compose logs` 只能看"当前容器"，做不了跨升级的趋势统计 | README 新增「日志：上限、留存与统计口径」：升级前导出 + 用 `data/request-logs/*.jsonl` 做历史统计 |
+
+**降级状态为什么放侧栏而不是账号池**：它影响**每一个**请求（system 提示词被整体替换），
+不属于某个页面的局部状态；放侧栏才能在任何视图下都看到。
+
+**可测性**：`degraded_until` 的后端三态（降级中 / 已过期 / 未接入）由
+`TestOverviewDegradedUntil` 盯；时长文案 `degradeLeftText` 是纯函数，由
+`TestAppJSDegradeLeftText` 盯 6 个用例（含脏数据与"已过期不能显示负数"）。
+
+> 顺带记一条观察：生产环境 5 天 1434 次请求里，因 11-128 触发的重试共 4 次，**4 次全部成功**、
+> 0 次 400 泄漏给客户端——渠道检测在工作，吸收机制也在工作。这个基线写进「首次生产部署记录」。

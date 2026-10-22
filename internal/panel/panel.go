@@ -74,6 +74,11 @@ type Config struct {
 	// 空或文件不存在 = upstream_health 端点返回 exists:false，前端显示「尚未巡检」）。
 	// 同样只读展示：**巡检结论不参与选号 / 冷却 / 熔断等任何决策**。
 	HealthFile string
+
+	// DegradedUntil 返回降级期结束时刻（未降级返回零值）；nil 时不透出该状态。
+	// 降级会把**全局** system 提示词换成中性版直到次日 00:00 CST——这是跨请求的全局
+	// 状态，必须让用户在面板上看得见，否则只会觉得"回答风格突然变了"却查不到原因。
+	DegradedUntil func() time.Time
 }
 
 // Panel 管理面板 handler。挂载方式：外层 mux Handle("/panel/", panel)，
@@ -287,6 +292,10 @@ func (p *Panel) overview(w http.ResponseWriter, r *http.Request) {
 		// 更新（默认每 5 分钟）——把这两个数透出，前端才能如实标注「x 分钟前更新」。
 		"balance_refresh_sec":  p.balanceRefreshSec(),
 		"balance_refreshed_at": p.balanceRefreshedAt(),
+		// degraded_until 降级期结束时刻（空串 = 未降级）。
+		// 降级会把**全局** system 提示词换成中性版，直到次日 00:00 CST；用户必须能看到，
+		// 否则只会觉得"回答风格突然变了"却查不到原因（此前只能翻日志或重启清掉）。
+		"degraded_until": p.degradedUntil(),
 	})
 }
 
@@ -296,6 +305,20 @@ func (p *Panel) balanceRefreshSec() int {
 		return 0
 	}
 	return int(p.cfg.Scheduler.BalanceInterval() / time.Second)
+}
+
+// degradedUntil 降级期结束时刻（RFC3339）；未降级 / 已过期 / 未接入时返回空串。
+// 返回字符串而非 time.Time：零值 time 会序列化成 "0001-01-01T00:00:00Z"，前端还得
+// 额外判哨兵值；空串没有歧义。已过期也返回空串，避免前端显示"还剩 -3 分"。
+func (p *Panel) degradedUntil() string {
+	if p.cfg.DegradedUntil == nil {
+		return ""
+	}
+	u := p.cfg.DegradedUntil()
+	if u.IsZero() || !time.Now().Before(u) {
+		return ""
+	}
+	return u.Format(time.RFC3339)
 }
 
 // balanceRefreshedAt 最近一次后台余额刷新完成时刻；无调度器或尚未跑过为零值。

@@ -22,6 +22,14 @@ services:
     user: "${PUID:-10001}:${PGID:-10001}"
     environment:
       - TZ=Asia/Shanghai
+    # 日志上限：默认 json-file 驱动**不设上限**，长期跑会把宿主机磁盘吃满
+    # （这类事故很常见，且发生得很慢、很难联想到是容器日志）。20m×5 = 100m 上限。
+    # 注意：容器重建后日志即丢失 —— 升级前先 `docker compose logs > /var/log/...`。
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     ports:
       # BIND_ADDR 默认 0.0.0.0（对上游行为零改动）。放 127.0.0.1 即可只走本机反代，
       # 不直接对外暴露面板——写进 .env，别改这一行（改了每次更新都冲突）。

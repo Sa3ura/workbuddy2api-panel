@@ -519,6 +519,15 @@ async function loadOverview(quiet) {
     // 完整串（含 -panel 与 commit）放 title，悬停可见，信息不丢。
     if ($('navSub')) { $('navSub').textContent = 'v' + shortVer(d.version); $('navSub').title = 'v' + String(d.version || ''); }
     if ($('navVer')) { $('navVer').textContent = 'v' + shortVer(d.version); $('navVer').title = 'v' + String(d.version || ''); }
+    // 降级期（跨请求的全局状态）：显示剩余时长，每轮轮询自动刷新倒计时。
+    if ($('navDegrade')) {
+      const left = degradeLeftText(d.degraded_until, Date.now());
+      $('navDegrade').hidden = !left;
+      if ($('navDegradeLeft')) $('navDegradeLeft').textContent = left;
+      $('navDegrade').title = left
+        ? '降级至 ' + new Date(d.degraded_until).toLocaleString() + '：上游拒绝过请求，网关已把 system 提示词换成中性版'
+        : '';
+    }
     $('navRedis').textContent = d.redis_mode === 'upstash' ? 'Redis 镜像' : '本地内存';
     $('navState').textContent = d.healthy > 0 ? '服务正常' : (d.total ? '无可用账号' : '待添加账号');
     const p = $('navPulse');
@@ -1567,6 +1576,30 @@ function shortVer(v) {
   const dirty = c.slice(-6) === '-dirty';
   if (dirty) c = c.slice(0, -6);
   return head.slice(0, p) + '+' + c.slice(0, 7) + (dirty ? '-dirty' : '');
+}
+
+/* ── 降级状态（全局 system 提示词被替换） ─────────────────────────────
+   上游渠道校验拒绝（11-128 一类）会让网关把**全局** system 提示词换成中性版，
+   直到次日 00:00 CST。这是跨请求的全局状态：不显示出来，用户只会觉得
+   "回答风格突然变了"却查不到原因（此前只能翻日志或重启清掉）。 */
+
+// degradeLeftText 降级剩余时长的可读文案（纯函数）。
+// 输入 degraded_until（RFC3339，空串 = 未降级）与当前毫秒时间戳。
+//
+// 为什么做成纯函数：这段逻辑一旦写反（把"还剩"算成"已过期"，或漏判空串），
+// 用户看到的就只剩「降级中」而永远没有时限——等于没提示，而且不会报错。
+function degradeLeftText(untilISO, nowMs) {
+  if (!untilISO) return '';
+  const u = Date.parse(String(untilISO));
+  if (!isFinite(u)) return '';
+  const ms = u - Number(nowMs || Date.now());
+  if (ms <= 0) return '';
+  const totalMin = Math.ceil(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h >= 24) return '还剩 ' + Math.floor(h / 24) + ' 天 ' + (h % 24) + ' 小时';
+  if (h > 0) return '还剩 ' + h + ' 小时 ' + m + ' 分';
+  return '还剩 ' + m + ' 分';
 }
 
 /* ── 上游健康巡检（P3 只读漂移探针） ─────────────────────────────────

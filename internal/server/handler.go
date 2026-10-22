@@ -125,6 +125,9 @@ type Handler struct {
 	wafIP wafIPGate
 }
 
+// DegradedUntil 降级期结束时刻（未降级为零值）。面板用它显示「降级中 · 还剩 X」。
+func (h *Handler) DegradedUntil() time.Time { return h.degrade.Until() }
+
 // NewHandler 构建 handler。
 func NewHandler(cfg Config) *Handler {
 	if cfg.MaxRotate <= 0 {
