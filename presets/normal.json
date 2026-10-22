@@ -1,0 +1,34 @@
+{
+  "_comment": "常态档（默认）。只放差异键：apply 会把这里的键写进 config.json，其余键保持不动。",
+  "_when": "上游无异常、账号全绿时。等价于 config.example.json 的默认值。",
+  "pool": {
+    "max_in_flight": 3,
+    "max_in_flight_global": 2
+  },
+  "schedule": {
+    "checkin_enabled": true,
+    "checkin_hours": [9, 21],
+    "activity_enabled": true,
+    "activity_hours": [10],
+    "keepalive_enabled": true,
+    "keepalive_hours": [22],
+    "blackcat_enabled": true,
+    "blackcat_hours": [23],
+    "growth_enabled": true,
+    "growth_hours": [1],
+    "travel_enabled": true,
+    "travel_hours": [9, 21],
+    "task_sweep_enabled": true,
+    "task_sweep_minutes": 15,
+    "balance_refresh_enabled": true,
+    "balance_refresh_minutes": 5,
+    "health_check_enabled": true,
+    "health_check_minutes": 720
+  },
+  "upstream": {
+    "passthrough_ip": false
+  },
+  "features": {
+    "sanitize_blacklist_fingerprints": true
+  }
+}

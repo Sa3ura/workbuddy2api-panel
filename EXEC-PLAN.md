@@ -244,12 +244,16 @@ go run ./cmd/doctor -offline                       # 只校验本地配置/文�
 
 ## P5 降档与运维（1 天）
 
+> **状态：已完成（2026-10-22）**。`presets/{normal,throttle,survival}.json` + `scripts/apply_preset.py`（默认预览、写前备份、只合并差异键）+ `docs/RUNBOOK.md`（8 节：判据/梯子/切档/暂停用法/备份恢复/账号复活/日志/升级/退出）+ README 退出判据。
+
+> 剩余：**真恢复演练**需在服务器停机执行（`docs/RUNBOOK.md` §4 已给完整命令），属人工演练项。
+
 | # | 任务 | 做法 | 验收 |
 |---|---|---|---|
-| P5-1 | 降档预设 | `data/presets/{normal,throttle,survival}.json`，只放**差异键**（并发、排程时点、UA 版本）。切换 = 覆盖合并 `config.json` 后用面板热生效 | 切到 throttle 后 `/status` 显示在途上限已降 |
-| P5-2 | `docs/RUNBOOK.md` | 写清：降档梯子（并发↓ → 对齐 UA/设备头 → 单号轮换 → 只留 L0）、「暂停选号」正确用法（**不是禁用**）、备份/恢复、账号复活 | 照文档能独立完成一次降档与回滚 |
-| P5-3 | 备份演练 | 备份 `auths/` + `data/state.json` + `config.json`，然后**真的恢复一次**（新目录起实例） | 恢复后 `/status` 账号数与积分与备份前一致 |
-| P5-4 | 退出判据入 README | 4 条量化条件（L0 成功率 <50%、全号无法对话、明确"非官方客户端"拒绝且改头无效、账号存活 <72h）+ "满足两条且持续 7 天" | README 有该节 |
+| P5-1 | 降档预设 | `presets/{normal,throttle,survival}.json`（只放差异键）+ `scripts/apply_preset.py`（默认预览、写前留 bak、幂等） | ✅ 三档就绪，`throttle` 实测改 11 键、回滚 `normal` 正常 |
+| P5-2 | `docs/RUNBOOK.md` | 判据表 / 降档梯子 4 级 / 切档命令 / 暂停≠禁用 / 备份恢复含演练 / 账号复活 / 日志口径 / 升级流程 / 退出判据 | ✅ 已完成（8 节） |
+| P5-3 | 备份演练 | 不停机版（解压+md5+账号数）与真恢复版（停机换目录）命令均已写进 RUNBOOK §4 | ◐ 文档就绪，**真恢复待执行** |
+| P5-4 | 退出判据入 README | 4 条量化条件 + 「满足两条且持续 7 天」 | ✅ README 有该节 |
 
 **P5-3 别省**：没演练过的备份等于没有备份。这一步能暴露 `auths/` 权限、`state.json` 版本字段等真问题。
 

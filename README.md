@@ -964,6 +964,31 @@ curl -sS -H "Authorization: Bearer $KEY" http://127.0.0.1:7863/panel/api/overvie
 
 空串 = 未降级。重启进程可立即清除（状态只在内存）。
 
+### 上游收紧时的降档与退出判据
+
+三档预设 + 一条命令切档（详见 [`docs/RUNBOOK.md`](./docs/RUNBOOK.md)）：
+
+```bash
+python3 scripts/apply_preset.py presets/throttle.json            # 预览要改什么
+python3 scripts/apply_preset.py presets/throttle.json --apply    # 应用（自动留 config.json.bak-*）
+python3 scripts/apply_preset.py presets/normal.json --apply      # 回滚
+```
+
+| 预设 | 适用 | 主要变化 |
+|---|---|---|
+| `normal` | 常态 | 默认值 |
+| `throttle` | 出现拒绝/WAF | 并发→1、关任务扫描与 23 点任务、巡检→24h、余额刷新→30m、排程错峰 |
+| `survival` | 只剩对话 | 关掉全部定时任务与巡检，仅保留对话能力 |
+
+预设只写**差异键**，`api_key` / `auth_dir` / `models.hidden` 等个性化设置不会被覆盖。
+
+**退出判据**——以下四条**满足两条且持续 7 天**，说明这条路已不成立，应停止维护并如实告知：
+
+1. L0 对话成功率 < 50%
+2. 所有账号都无法完成一次正常对话
+3. 明确收到「非官方客户端」类拒绝，且调整请求头/提示词后仍无效
+4. 新注册账号存活 < 72 小时
+
 ### 工具脚本
 
 | 脚本 | 用途 |

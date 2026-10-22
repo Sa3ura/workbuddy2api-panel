@@ -1,0 +1,28 @@
+{
+  "_comment": "保命档。只留 L0 对话；所有后台任务与巡检关闭。只放差异键。",
+  "_when": "降档后 7 天仍持续出现拒绝 / 有账号被禁用 / 明确「非官方客户端」拒绝且改头无效（两条以上同时成立）。",
+  "_tradeoff": "只剩对话能力。签到/保活全停 → 会话可能过期、积分不再增长；只有 1 个账号在途，吞吐极低。",
+  "_recover": "把配置改回 normal 档并点一次「立即巡检」+ 手动签到，即可恢复。",
+  "pool": {
+    "max_in_flight": 1,
+    "max_in_flight_global": 1
+  },
+  "schedule": {
+    "checkin_enabled": false,
+    "activity_enabled": false,
+    "keepalive_enabled": false,
+    "blackcat_enabled": false,
+    "growth_enabled": false,
+    "travel_enabled": false,
+    "task_sweep_enabled": false,
+    "health_check_enabled": false,
+    "balance_refresh_enabled": true,
+    "balance_refresh_minutes": 60
+  },
+  "upstream": {
+    "passthrough_ip": false
+  },
+  "features": {
+    "sanitize_blacklist_fingerprints": true
+  }
+}

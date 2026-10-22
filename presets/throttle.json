@@ -1,0 +1,26 @@
+{
+  "_comment": "降档档。只放差异键：apply 会把这里的键写进 config.json，其余键保持不动。",
+  "_when": "出现下列任一信号：12 小时内 11-128 超过 5 次；客户端 400 比例 >5%；出现 WAF 403；某账号被禁用。",
+  "_tradeoff": "并发减到 1、关掉最吵的两个任务、巡检降到 24h。积分获取会变慢，但每日请求量与规律性显著下降。",
+  "pool": {
+    "max_in_flight": 1,
+    "max_in_flight_global": 1
+  },
+  "schedule": {
+    "task_sweep_enabled": false,
+    "blackcat_enabled": false,
+    "growth_enabled": false,
+    "travel_enabled": false,
+    "checkin_hours": [10, 22],
+    "activity_hours": [11],
+    "keepalive_hours": [23],
+    "balance_refresh_minutes": 30,
+    "health_check_minutes": 1440
+  },
+  "upstream": {
+    "passthrough_ip": false
+  },
+  "features": {
+    "sanitize_blacklist_fingerprints": true
+  }
+}
