@@ -15,12 +15,12 @@ import (
 
 const (
 	// defaultClientVersion 出站 WorkBuddy 客户端版本段（UA 的 `WorkBuddy/<ver>` 与
-	// 白名单头组的 X-IDE-Version）。对齐官方 WorkBuddy Desktop 分发包版本（5.5.4）。
+	// 白名单头组的 X-IDE-Version）。对齐官方 WorkBuddy Desktop 分发包版本（5.7.7，2026-10-22 从 D:\WorkBuddy 安装包元数据取得）。
 	// config upstream.client_version 可覆盖（空 = 内置默认）。
-	defaultClientVersion = "5.5.4"
-	// defaultCliVersion 出站 UA 中 `CLI/<ver>` 段版本。对齐官方内置 CLI（2.137.1）。
+	defaultClientVersion = "5.7.7"
+	// defaultCliVersion 出站 UA 中 `CLI/<ver>` 段版本。对齐官方内置 CLI（2.156.0，取自 cli/package.json 的 publishConfig.customPackage.version）。
 	// config upstream.cli_version 可覆盖（空 = 内置默认）。
-	defaultCliVersion = "2.137.1"
+	defaultCliVersion = "2.156.0"
 
 	originRefererCN     = "https://www.codebuddy.cn"
 	originRefererGlobal = "https://www.workbuddy.ai"
@@ -144,6 +144,21 @@ func (c *Client) injectAccountStableHeaders(req *http.Request, a *auth.Auth) {
 	req.Header.Set("X-Session-ID", deriveAccountStableID(a.UID, "session"))
 }
 
+// customChannelID 官方客户端的「自定义渠道」标识。设备身份提供者 `provide()` 无条件
+// 以字面量 `unknown` 下发（module.app-server.js：`var S='X-Custom-Channel-Id', te='unknown'`，
+// `let e={[S]:te}`）。对非定制分发的官方客户端，这个值恒为 unknown，因此**不是随机量**，
+// 可以直接照抄；缺这个头等于少了一项官方必带身份。
+const customChannelID = "unknown"
+
+// injectChannelID 注入 X-Custom-Channel-Id。
+// 与 X-Device-Token / X-Device-Id-List 同属官方「设备身份三件套」：
+//   - X-Device-Token     ← Turing 设备令牌（原生 SDK 签发，见 docs/protocol/headers.md）
+//   - X-Device-Id-List   ← {"qimei36":"<36 位>"}（腾讯 QIMEI SDK 生成）
+//   - X-Custom-Channel-Id ← 固定 unknown（本函数，唯一可完全照抄的一项）
+func (c *Client) injectChannelID(req *http.Request) {
+	req.Header.Set("X-Custom-Channel-Id", customChannelID)
+}
+
 // CommonHeaders 设置所有 API 共享的请求头。
 func (c *Client) CommonHeaders(req *http.Request, a *auth.Auth) {
 	req.Header.Set("Content-Type", "application/json")
@@ -164,6 +179,9 @@ func (c *Client) CommonHeaders(req *http.Request, a *auth.Auth) {
 	// injectAccountStableHeaders）。注入在 CommonHeaders——chat 经 ChatHeaders
 	// 叠加 CommonHeaders 天然继承；billing 域另行注入，全出站覆盖。
 	c.injectAccountStableHeaders(req, a)
+	// X-Custom-Channel-Id：官方设备身份三件套里唯一可完全照抄的一项
+	// （另两项 X-Device-Token / X-Device-Id-List 需腾讯原生 SDK，见 docs/protocol/headers.md）。
+	c.injectChannelID(req)
 }
 
 // acceptLanguageFor 按账号 realm 返回 Accept-Language：global → en-US，cn → zh-CN。
@@ -337,6 +355,9 @@ func (c *Client) attributionClientName() string {
 // （仅 X-Product="SaaS"，不设 X-IDE-*）；配其他值则四头跟随该值。
 func (c *Client) injectAttribution(req *http.Request) {
 	name := c.attributionClientName()
+	// X-Private-Data: true —— 官方头构造器无条件设置（buildHeaders），与 X-Product 同批。
+	// 放在 SaaS 分支之前：官方即使 X-Product=SaaS 也照样带这个头。
+	req.Header.Set("X-Private-Data", "true")
 	if name == "SaaS" {
 		req.Header.Set("X-Product", "SaaS")
 		return

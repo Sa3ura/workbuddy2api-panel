@@ -126,3 +126,86 @@ go test ./cmd/doctor/ -run DumpHeaders  # 遮蔽与头族完整性断言
 
 导出覆盖：`Authorization` / `X-Refresh-Token` / `X-Device-Token` / `X-Machine-ID` / `X-Session-ID` /
 `X-User-Id` / `X-Enterprise-Id` / `X-Tenant-Id` 全部遮蔽（保留长度与 4 字符头部，便于判断"有没有配"）。
+
+---
+
+## 10. 设备身份三件套（A 级证据：客户端源码，2026-10-22）
+
+**证据来源**：`D:\WorkBuddy\resources\app.asar` → `/main/module.app-server.js`（203MB 包内未压缩 JS）。
+WorkBuddy Desktop = 腾讯 Electron 应用，`ProductVersion 5.7.7`。
+
+官方在每个需要身份的 API 请求上附带三个设备身份头，由同一个 provider 产出：
+
+```js
+var x = 'X-Device-Token', S = 'X-Custom-Channel-Id', ee = 'X-Device-Id-List', te = 'unknown'
+
+C = class {
+  async provide() {
+    let e = { [S]: te }                                     // ① X-Custom-Channel-Id: unknown
+    try {
+      let t = await this.authService.getTuringDeviceToken()
+      t && (e[x] = t)                                       // ② X-Device-Token: <Turing 令牌>
+    } catch (e) { logger.warn('[auth/state] resolve device token failed, skip') }
+    let t = process.env.CODEBUDDY_QIMEI36?.trim()
+    t && (e[ee] = JSON.stringify({ qimei36: t }))           // ③ X-Device-Id-List: {"qimei36":"..."}
+    return e
+  }
+}
+```
+
+| 头 | 取值来源 | 可复制性 | 我们的状态 |
+|---|---|---|---|
+| `X-Custom-Channel-Id` | **字面量 `unknown`**（常量） | ✅ 可完全照抄 | ✅ 1.13.9 起已发 |
+| `X-Device-Token` | `getTuringDeviceToken()` → `turing-sdk/TuringShieldSDK.dll`（原生风控 SDK） | ❌ 无法离线合成 | ⚠️ 配置项 `upstream.device_token`，默认空 |
+| `X-Device-Id-List` | `{"qimei36":"<36 位>"}`，由 `@tencent/qimei-node@1.2.2` + `qimei.dll` 生成（appKey 走 `WORKBUDDY_QIMEI_APP_KEY`） | ⚠️ 需在装客户端的机器上算 | ❌ 未发 |
+
+**关键推论**：三条里只有 ① 是常量。②③ 依赖腾讯原生 SDK，且生成的是**那台机器的指纹**——
+在 Linux 服务器上算出的 QIMEI36 与账号注册设备不一致，是否优于"不发"**未经验证**。
+
+### 官方头构造器（同 asar，权威版本）
+
+```js
+function Jr(e) {
+  let t = {}, n = e.appVersion?.trim() || '0.0.0', r = e.cliVersion?.trim()
+  e.userId?.trim()       && (t['X-User-Id'] = e.userId.trim())
+  e.enterpriseId?.trim() && (t['X-Enterprise-Id'] = ..., t['X-Tenant-Id'] = ...)
+  e.domain?.trim()       && (t['X-Domain'] = e.domain.trim())
+  t['X-Product']      = e.deploymentType?.trim() || 'SaaS'
+  t['X-IDE-Type']     = 'WorkBuddy'
+  t['X-IDE-Name']     = 'WorkBuddy'
+  t['X-IDE-Version']  = n
+  t['X-Private-Data'] = 'true'
+  t['User-Agent']     = [`WorkBuddy/${n}`, `WorkBuddy/${n}`, ...(r ? [`CLI/${r}`] : [])].join(' ')
+  return t
+}
+```
+
+- `X-Private-Data: true` **无条件设置**（此前我们漏发，1.13.9 已补）。
+- **版本段来源**：`appVersion` = 分发包版本（5.7.7）；`cliVersion` = 内置 `cli/package.json`
+  的 `publishConfig.customPackage.version`（**2.156.0**；`version` 字段是 `0.0.0` 故不可用）。
+  两段此前是 5.5.4 / 2.137.1，均已过期 —— 1.13.9 一并修正。
+- ⚠️ 一个**仍不一致**的点：`X-Product` 官方默认是 **`SaaS`**（`deploymentType` 缺省时），
+  我们默认给 `WorkBuddy`。这会改变上游用量归因的维度，**待 A/B 后再定**。
+
+### 我们多发、官方客户端里搜不到的头
+
+`X-Machine-ID` / `X-Session-ID`：官方 asar 全文检索**零命中**。这两个头是网关按 uid 派生的
+（`deriveAccountStableID`），官方客户端用的是上面那套三件套。**多发一个官方永不发的头本身
+可能是异常特征**，但也可能是上游风控"认"的东西（生产 3 号全绿、重试率 0.5%），故保留，
+留作 A/B 开关。
+
+### 复核方式
+
+```powershell
+# 只读扫描客户端包（不改安装目录）
+python - <<'PY'
+import re
+P = r'D:\WorkBuddy\resources\app.asar'
+with open(P,'rb') as f: d = f.read()
+for p in [b'X-Custom-Channel-Id', b'X-Private-Data', b'getTuringDeviceToken', b'X-Machine-ID']:
+    m = re.search(re.escape(p), d)
+    print(p.decode(), '->', m.start() if m else 'NOT FOUND')
+PY
+```
+
+对比我们自己发的头：`go run ./cmd/doctor -headers`（敏感值已遮蔽）。
