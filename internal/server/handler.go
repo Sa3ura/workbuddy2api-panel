@@ -619,6 +619,16 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// modelBlock 记录本次是否因「模型级冷却」而选不到号（下方 acct==nil 分支填充）。
 	// 默认零值 Blocked=false = 按既有的"没有可用账号"口径报错。
 	var modelBlock pool.ModelBlockStatus
+	// modelRateHits / modelRateReason 记录本次轮转里**实际撞到过**的模型级限流（6000/6004）。
+	//
+	// 为什么需要它：modelBlock 是"全池每个号都被该模型冷却"的快照，而选不出号还有别的成因
+	// ——剩下的号被在途占满 / 积分保底挡住 / 已在 tried 里。那些情况下快照会返回
+	// Blocked=false，于是回 503 no_healthy_account，客户端当成"服务端过载"反复重试，
+	// 而人看到「无可用账号」会去查账号池（全绿），排查方向直接跑偏（2026-10-24 线上实案）。
+	// 只要本次请求确实撞过模型级限流、且没有出现**其它类型**的失败，就按模型不可用回。
+	modelRateHits := 0
+	modelRateReason := ""
+	otherFailure := false
 
 	// 会话粘性：从请求体提取会话键并解析绑定号（找不到/无效则 stickyUID 为空，走普通轮换）。
 	// ExtractKey 与粘性开关解耦（issue #35 侧）：关闭粘性时会话头族的聚合主键仍按
@@ -948,6 +958,13 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			} else {
 				kind = upstream.Classify(status, string(respBody))
 				uerr = &upstream.Error{Kind: kind, Status: status, Msg: string(respBody)}
+			}
+			// 记下本次失败的性质，供收尾区分「这个模型没号」与「整个池子没号」。
+			if kind == upstream.ErrSoftRate && upstream.IsModelRateLimit(string(respBody)) {
+				modelRateHits++
+				modelRateReason = string(respBody)
+			} else {
+				otherFailure = true
 			}
 			// 内容拦截误报（passthrough/append 模式首遇）：判定为 system 指纹误报，
 			// 触发降级到次日 00:00 CST，换 Degraded 中性提示词同请求内重试（append
@@ -1298,6 +1315,20 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			hint += "; upstream: " + s
 		}
 		status = http.StatusBadRequest
+	} else if modelRateHits > 0 && !otherFailure {
+		// 本次轮转确实撞过模型级限流（6000/6004），但池子快照说"不是全池被锁"——
+		// 因为剩下那些号是被在途/积分保底/tried 挡住的，不是被模型冷却。
+		// 这时按模型不可用回（400），别回 503 no_healthy_account：账号是好的，
+		// 客户端该做的是换模型，不是无脑重试。
+		code = "model_unavailable"
+		status = http.StatusBadRequest
+		if !upstreamMsgPassed {
+			msg = "model is unavailable on every account (per-model cooldown), try another model"
+		}
+		hint = fmt.Sprintf("model_blocked: %d attempt(s) hit model-level rate limit; accounts are healthy, switch model or wait for the upstream reset", modelRateHits)
+		if s := strings.TrimSpace(modelRateReason); s != "" {
+			hint += "; upstream: " + s
+		}
 	}
 	writeOpenAIErrorHint(w, status, code, msg, hint)
 	st.status = status

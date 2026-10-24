@@ -430,3 +430,31 @@ WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重�
 
 **效果**：6000 现在会写进 `modelCooldowns[model]`（对齐 17:00:49），面板「模型锁池」能看到；
 账号不再被整体冷却，其它模型照常用；全池该模型都锁时回 `400 model_unavailable` 而不是「无可用账号」。
+
+## 1.13.14：模型级限流耗尽时不再报「无可用账号」（2026-10-24）
+
+**症状**（接 1.13.13 之后仍残留的口径问题）：撞到 6000/6004 后，若同请求内其它号被
+在途占满 / 积分保底挡住 / 已在 `tried` 里，选号返回 nil → 走默认分支回
+`503 no_healthy_account`「all accounts are temporarily unavailable」，客户端按
+「服务端过载」反复重试，人看到「无可用账号」去查账号池（三个号全绿）。
+
+**根因**：`modelBlock = Pool.ModelBlockedForRealm(model, realm)` 只判「**全池每个号**
+都被该模型冷却」。剩下那个号没被模型冷却（只是被别的条件挡住）时它返回 `Blocked=false`，
+于是落进 `no_healthy_account`。而真实语义是：**账号是好的，这个模型此刻不可用**。
+
+**修法**（`internal/server/handler.go`）：
+- 循环内记录本次失败的**性质**：`kind==ErrSoftRate && IsModelRateLimit(body)` → `modelRateHits++`
+  且留住上游原文；其余错误 → `otherFailure=true`。
+- 收尾时若 `!modelBlock.Blocked && modelRateHits>0 && !otherFailure` → 改回
+  **400 `model_unavailable`**，hint 写清「账号健康、是模型被限流」并附上游原文。
+
+**为什么必须带 `!otherFailure`**：只有一个「模型限流」信号、同时又混进 500 之类的
+别的失败时，报 model_unavailable 会把上游故障误报成模型限流，客户端换模型也没用，
+真故障被掩盖。这条写成了守卫测试。
+
+**测试**：
+- `TestChatModelRateLimitExhaustedReportsModelUnavailable`：hot 撞 6000、poor 被积分保底挡住
+  → 断言 400 + `model_unavailable` + hint 含 `model_blocked` 与上游原文。
+  积分保底要真正生效还需 `SetModelRateOf`（无实价台账时按目录倍率兜底，见
+  `floorBlockedForRealmModel`），否则保底判据直接放行——测试里踩过一次。
+- `TestChatMixedFailureKeepsNoHealthyAccount`：hot 6000 + bad 500 → 不得报 model_unavailable。

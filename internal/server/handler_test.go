@@ -2055,3 +2055,95 @@ func TestModelsHiddenFiltered(t *testing.T) {
 		t.Errorf("hidden model leaked into /v1/models: ids=%v", ids)
 	}
 }
+
+// TestChatModelRateLimitExhaustedReportsModelUnavailable 回归 2026-10-24 线上实案：
+// 轮转中撞到模型级限流（6000），随后另一个号被「积分保底」挡住 → 选不出号。
+// 修复前回 503 no_healthy_account（客户端当成服务端过载反复重试，人去看账号池看到全绿），
+// 修复后回 400 model_unavailable（账号健康，换模型或等重置）。
+func TestChatModelRateLimitExhaustedReportsModelUnavailable(t *testing.T) {
+	up := newFakeUpstream(t, func(authz string) (int, string, bool) {
+		if authz == "Bearer at-hot" {
+			return 429, `{"code":6000,"msg":"您的使用量已超出频率限制，将在 2026-10-24 17:00:49 UTC+8 重置，您也可以切换其他模型继续使用。"}`, false
+		}
+		return 200, sseOK, true
+	})
+	p := testPoolWith(
+		&auth.Auth{UID: "hot", AccessToken: "at-hot", ExpiresAt: 9999999999},
+		&auth.Auth{UID: "poor", AccessToken: "at-poor", ExpiresAt: 9999999999},
+	)
+	p.SetCredits("hot", 2000, 0)
+	p.SetCredits("poor", 10, 0)
+	// 积分保底要真正生效，还需要「该模型按倍率计费」的证据（见 floorBlockedForRealmModel）：
+	// 无实价台账时必须由模型目录倍率兜底，否则保底判据直接放过（防误锁）。
+	p.SetCreditFloor(100)
+	p.SetModelRateOf(func(realm, model string) string { return "1" })
+	h := NewHandler(Config{Pool: p, Upstream: up, SoftCooldown: time.Minute})
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"model":"glm-5.2","messages":[]}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want 400 model_unavailable；body=%s", rec.Code, rec.Body)
+	}
+	// 响应信封是 {"error":{"code":...,"gateway_hint":...,"message":...}}
+	var env struct {
+		Error struct {
+			Code        string `json:"code"`
+			GatewayHint string `json:"gateway_hint"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("bad json: %v (%s)", err, rec.Body)
+	}
+	if env.Error.Code != "model_unavailable" {
+		t.Errorf("code=%q want model_unavailable (body=%s)", env.Error.Code, rec.Body)
+	}
+	if !strings.Contains(env.Error.GatewayHint, "model_blocked") {
+		t.Errorf("gateway_hint=%q 应含 model_blocked", env.Error.GatewayHint)
+	}
+	if !strings.Contains(env.Error.GatewayHint, "6000") {
+		t.Errorf("gateway_hint 应带上游原文（含 6000）：%q", env.Error.GatewayHint)
+	}
+}
+
+// TestChatMixedFailureKeepsNoHealthyAccount 反向守卫：只要本次轮转里出现过**别的类型**
+// 的失败（这里是另一个号 500），就不能把结论写成 model_unavailable —— 那会把
+// "上游故障"误报成"该模型被限流"，客户端据此换模型也没用，反而掩盖真故障。
+func TestChatMixedFailureKeepsNoHealthyAccount(t *testing.T) {
+	up := newFakeUpstream(t, func(authz string) (int, string, bool) {
+		switch authz {
+		case "Bearer at-hot":
+			return 429, `{"code":6000,"msg":"将在 2026-10-24 17:00:49 UTC+8 重置"}`, false
+		case "Bearer at-bad":
+			return 500, `boom`, false
+		}
+		return 200, sseOK, true
+	})
+	p := testPoolWith(
+		&auth.Auth{UID: "hot", AccessToken: "at-hot", ExpiresAt: 9999999999},
+		&auth.Auth{UID: "bad", AccessToken: "at-bad", ExpiresAt: 9999999999},
+	)
+	p.SetCredits("hot", 2000, 0)
+	p.SetCredits("bad", 2000, 0)
+	h := NewHandler(Config{Pool: p, Upstream: up, SoftCooldown: time.Minute})
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"model":"glm-5.2","messages":[]}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusBadRequest {
+		t.Fatalf("混合失败不该报 400 model_unavailable；body=%s", rec.Body)
+	}
+	var env struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Error.Code == "model_unavailable" {
+		t.Errorf("code 不应为 model_unavailable（有非限流类失败混入）：%s", rec.Body)
+	}
+}
