@@ -248,10 +248,21 @@ var softRateResetLoc = time.FixedZone("UTC+8", 8*60*60)
 // SoftRateResetLoc 暴露重置时间的固定时区（供测试构造/断言同一时区口径）。
 func SoftRateResetLoc() *time.Location { return softRateResetLoc }
 
-// modelRateLimitCode 明确指向「模型级 429 限流」的业务 code。
-// 上游用它表达"该模型的使用量超限"（code 6004，msg 带「将在 … 重置」），
-// 而不是账号整体被限流——账号健康，只是这个模型此刻被限（issue #31）。
-const modelRateLimitCode = "6004"
+// modelRateLimitCodes 明确指向「模型级限流」的业务 code 集合。
+//
+// 上游用它们表达"该模型的使用量超限"（msg 带「将在 … 重置，您也可以切换其他模型
+// 继续使用」），而不是账号整体被限流——账号健康，只是这个模型此刻被限（issue #31）。
+//
+//   - 6004：最早的形态（1.13.x 一直只认这个）。
+//   - 6000：2026-10-24 线上实测（`{"code":6000,"msg":"您的使用量已超出频率限制，
+//     将在 2026-10-24 17:00:49 UTC+8 重置，您也可以切换其他模型继续使用。"}`）。
+//     文案里的「也可以切换其他模型」是它**模型级**的直接证据。只认 6004 时，6000 会被
+//     当成账号级软限流 → 整号冷却 → 三个号各撞一次后池子空 → 客户端看到
+//     `no_healthy_account`「无可用账号」，而真实原因只是单个模型被限。
+//
+// 新增码时必须同步 client_test.go 的 TestIsModelRateLimit —— 尤其是**不要**让
+// 前缀相同的业务码误命中（60001 是计费类码，见那里的回归用例）。
+var modelRateLimitCodes = []string{"6000", "6004"}
 
 // softRateResetPatternCN/EN 匹配重置文案（CN「将在 … 重置」/ global 域英文
 // "reset at <固定格式时间>"），捕获中间的时间串。
@@ -261,8 +272,11 @@ const softRateResetPatternEN = `(?i)reset at (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2
 // 限流判定正则预编译为包级 var：IsModelRateLimit / ParseRateReset 在每次错误
 // 分类、每个限流 body 上调用，函数体内 MustCompile 是纯浪费；错误风暴（429
 // 轰炸）时尤甚。模式串均为纯常量。regexp 并发安全（匹配只读），无需额外锁。
+//
+// 末尾的 `\b` 是**必须**的：没有它，`6000` 会命中 `"code":60001`（计费类码），
+// 把"余额/计费"误判成"模型限流"，进而按软限流放过一个该硬冷却的号。
 var (
-	reModelRateLimit  = regexp.MustCompile(`"code"\s*:\s*"?` + modelRateLimitCode + `"?`)
+	reModelRateLimit  = regexp.MustCompile(`"code"\s*:\s*"?(?:` + strings.Join(modelRateLimitCodes, "|") + `)"?\b`)
 	reSoftRateResetCN = regexp.MustCompile(softRateResetPatternCN)
 	reSoftRateResetEN = regexp.MustCompile(softRateResetPatternEN)
 )
@@ -270,10 +284,10 @@ var (
 // softRateTimeLayout 上游重置时间的格式（无时区后缀；时区固定 UTC+8）。
 const softRateTimeLayout = "2006-01-02 15:04:05"
 
-// IsModelRateLimit 报告 429 body 是否明确指向模型级限流（业务 code 6004）。
+// IsModelRateLimit 报告 body 是否明确指向模型级限流（业务码 6000 / 6004）。
 // 用于区分"账号级软限流"（按账号冷却）与"模型级用量限流"（切模型即可用）。
 func IsModelRateLimit(body string) bool {
-	// `"code":6004` / `"code": 6004` / `"code":"6004"` 均可命中（JSON 空格容差）。
+	// `"code":6004` / `"code": 6000` / `"code":"6004"` 均可命中（JSON 空格容差）。
 	return reModelRateLimit.MatchString(body)
 }
 

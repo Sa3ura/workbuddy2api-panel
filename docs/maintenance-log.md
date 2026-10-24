@@ -403,3 +403,30 @@ WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重�
 **守卫**：新增 `TestIndexHTMLHasNoInlineEventHandlers`，扫描 `index.html` 里
 「空白 + on + 字母 + =」形态的属性并失败。写这条测试时注意：**注释里出现同样字样也会被
 命中**（本次就踩了），所以注释要绕开写法，别把守卫写松。
+
+## 1.13.13：模型级限流码补 6000（2026-10-24）
+
+**症状**：客户端收到 `429 {"code":"rate_limit_exceeded", ... message: {"code":6000,"msg":"您的使用量已超出频率限制，将在 2026-10-24 17:00:49 UTC+8 重置，您也可以切换其他模型继续使用。"}}`，
+随后进池的请求回 `503 no_healthy_account`「无可用账号」——**但账号是好的**，只有那一个模型被限。
+
+**根因**：`internal/upstream/client.go` 的 `modelRateLimitCode` 只认 **6004**。上游这次给的是 **6000**，
+于是 `IsModelRateLimit` 返回 false → `applyErrorPolicy` 走**账号级** `CooldownSoftRate`，把**整个号**冷却，
+而不是只锁这个模型。三个号各撞一次，池子就被冷却成空 → 后续请求选号 nil → `no_healthy_account`。
+
+判据就在上游文案里：「**您也可以切换其他模型继续使用**」——能靠换模型绕过，就是模型级，不是账号级。
+
+**修法**：
+- `modelRateLimitCode` 常量 → `modelRateLimitCodes = {"6000", "6004"}`
+- 正则改为 `(?:"code"\s*:\s*"?(?:6000|6004)"?\b)`
+
+**`\b` 是必须的**：没有它，`6000` 会命中 `"code":60001`（计费类码），把"余额/计费"误判成"模型限流"，
+进而按软限流放过一个本该硬冷却的号。测试里已加两条回归用例（60001 / 60004 必须为 false）。
+
+**连带**：面板里的 reason 文案从 `"6004 model rate limit"` 改为 `"model rate limit (6000/6004)"`，
+避免日志里明明写着 6000、面板却显示 6004。
+
+**测试**：`TestIsModelRateLimit` +5 例（6000 紧凑/空格/字符串、60001/60004 反例）；
+`TestClassify` +2 例（429+6000、400+6000 → ErrSoftRate）。
+
+**效果**：6000 现在会写进 `modelCooldowns[model]`（对齐 17:00:49），面板「模型锁池」能看到；
+账号不再被整体冷却，其它模型照常用；全池该模型都锁时回 `400 model_unavailable` 而不是「无可用账号」。

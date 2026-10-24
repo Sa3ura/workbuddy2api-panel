@@ -34,6 +34,10 @@ func TestClassify(t *testing.T) {
 		{400, `{"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-10-22 22:49:09 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"4612bcaff2d4899578fd2337feb11c4e"}`, ErrSoftRate},
 		{400, `{"code": 6004, "msg":"x"}`, ErrSoftRate}, // JSON 空白容差
 		{403, `{"code":"6004","msg":"model rate limit"}`, ErrSoftRate},
+		// 6000 形态（2026-10-24 线上实测）：同样归软限流，进而在 applyErrorPolicy 里
+		// 走"只锁这个模型"的分支，而不是把整号冷却（那样三个号各撞一次池子就空了）。
+		{429, `{"code":6000,"msg":"您的使用量已超出频率限制，将在 2026-10-24 17:00:49 UTC+8 重置，您也可以切换其他模型继续使用。"}`, ErrSoftRate},
+		{400, `{"code":6000,"msg":"x"}`, ErrSoftRate},
 		{400, `您的使用量已超出频率限制`, ErrSoftRate}, // 无 code 时的中文文案兜底
 		// 限流文案（issue #28）：状态码不是 429 时也必须识别为软限流，
 		// 否则账号不会被冷却，下次请求仍会被选中。
@@ -154,7 +158,7 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-// TestIsModelRateLimit 判断 429 body 是否明确指向模型级限流（code 6004）。
+// TestIsModelRateLimit 判断 body 是否明确指向模型级限流（code 6000 / 6004）。
 func TestIsModelRateLimit(t *testing.T) {
 	cases := []struct {
 		body string
@@ -163,9 +167,18 @@ func TestIsModelRateLimit(t *testing.T) {
 		// 6004：模型级限流（issue #31 的核心场景）。
 		{`{"code":6004,"msg":"将在 2026-09-11 18:33:27 UTC+8 重置"}`, true},
 		{`{"code": 6004,"msg":"x"}`, true},
+		// 6000：2026-10-24 线上实测的另一形态。文案里的「也可以切换其他模型」
+		// 是它模型级的直接证据；只认 6004 会让它退化成账号级冷却 → 整池被冷却成空。
+		{`{"code":6000,"msg":"您的使用量已超出频率限制，将在 2026-10-24 17:00:49 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"ccd8660d5dbf805ae773d60409df1d30"}`, true},
+		{`{"code": 6000, "msg":"x"}`, true},
+		{`{"code":"6000","msg":"x"}`, true},
 		// 其他 code（非模型级限流）→ 不算。
 		{`{"code":11140,"msg":"The model provider is rate-limiting requests."}`, false},
 		{`{"code":1,"msg":"429 rate limit"}`, false},
+		// 前缀相同的计费类码 60001 **不得**命中（正则末尾 \b 的作用）：
+		// 误命中会把它从 ErrHardCredit 降级成软限流，放过一个该硬冷却的号。
+		{`{"code":60001,"msg":"quota exceeded"}`, false},
+		{`{"code":60004,"msg":"x"}`, false},
 	}
 	for _, c := range cases {
 		if got := IsModelRateLimit(c.body); got != c.want {
