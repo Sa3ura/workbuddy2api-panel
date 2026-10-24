@@ -213,11 +213,26 @@ func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 	total, healthy, _, _, _ := h.cfg.Pool.CountsDetailed()
-	// 用 ServableNow 判定：healthy>0 但全占满在途时 chat 会 503，探活必须同口径，
-	// 否则负载均衡器会把流量持续打进无法受理的实例。
+	// 判活口径 = "能不能受理请求"，不是"有没有立即可选号"：
+	//   healthy   ：有立即可选号（healthy 且未占满在途）
+	//   fallback  ：只剩兜底路径可用（软冷却/熔断残留），chat 实际仍会放行并成功
+	//   down      ：连兜底都接不了（全禁用/全暂停/全硬冷却到期前）
+	// 旧口径只看 ServableNow，于是"3 个号全在软冷却"时 /healthz 恒 503、容器被标
+	// unhealthy，而同一时刻请求 13/13 全 200（2026-10-24 线上实况）。软冷却是状态
+	// 残留，不是不可用，探活不该据此判死。
+	fallback := 0
 	status := http.StatusOK
-	if !h.cfg.Pool.ServableNow() {
-		status = http.StatusServiceUnavailable
+	mode := "healthy"
+	switch {
+	case h.cfg.Pool.ServableNow():
+		// 立即可选
+	default:
+		if fallback = h.cfg.Pool.FallbackUsable(); fallback > 0 {
+			mode = "fallback"
+		} else {
+			mode = "down"
+			status = http.StatusServiceUnavailable
+		}
 	}
 	// realm_servable 域可服务维度：不改判活语义（存在性探活保持不变），
 	// 只新增 CN/global 各自可达性供双域部署运维观察（任一域不可用单独告警）。
@@ -228,10 +243,12 @@ func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 	// 恒无鉴权（负载均衡/编排探活只需 2xx/503 语义），身份靠 service 字段 + X-Service 头双保险。
 	w.Header().Set("X-Service", ServiceName)
 	writeJSON(w, status, map[string]any{
-		"healthy":        healthy,
-		"total":          total,
-		"service":        ServiceName,
-		"realm_servable": realmServable,
+		"healthy":           healthy,
+		"total":             total,
+		"service":           ServiceName,
+		"mode":              mode,
+		"fallback_accounts": fallback,
+		"realm_servable":    realmServable,
 	})
 }
 

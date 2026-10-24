@@ -458,3 +458,35 @@ WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重�
   积分保底要真正生效还需 `SetModelRateOf`（无实价台账时按目录倍率兜底，见
   `floorBlockedForRealmModel`），否则保底判据直接放行——测试里踩过一次。
 - `TestChatMixedFailureKeepsNoHealthyAccount`：hot 6000 + bad 500 → 不得报 model_unavailable。
+
+## 1.13.15：/healthz 判活口径对齐"能否受理"，修容器假 unhealthy（2026-10-24）
+
+**症状**：容器长期 `unhealthy`，但服务完全正常。
+`/healthz` 返回 503（`healthy:0`）→ 镜像里的 `HEALTHCHECK wget ... || exit 1` exit=8 → docker 标 unhealthy。
+同一时刻：请求 13/13 全 200、doctor 三个号全绿、积分正常。
+
+**原因链**：三个号全部 `cool_kind=1 (CoolSoft)`、`reason="429 rate limit"`、`until≈14:51`
+（早前高峰留下的**状态残留**）→ `ServableNow()` 只看 healthy 口径，冷却期一律排除 → 503。
+但选号末端的 `pickEarliestExpiryLocked` 对软冷却**仍会兜底放行**，所以请求照常成功。
+
+**决策**：判活问的是"能不能受理"，不是"有没有立即可选号"。三态：
+
+| mode | 含义 | HTTP |
+|---|---|---|
+| `healthy` | 有立即可选号（healthy 且未占满在途） | 200 |
+| `fallback` | 只剩兜底路径可用（软冷却/熔断残留），chat 实际会放行并成功 | **200** |
+| `down` | 连兜底都接不了（全禁用/全暂停/全硬冷却未到期） | 503 |
+
+**实现**：
+- `pool.FallbackUsable() int` —— 与 `pickEarliestExpiryLocked` 同口径：排除 disabled/paused、
+  在途占满、**硬冷却未到期**（CoolHard：余额耗尽/凭证失效，兜底也排除）；其余都算。
+- `/healthz` body 新增 `mode` 与 `fallback_accounts`，`healthy`/`total` 口径**不变**
+  （监控基线不破坏）。
+- Dockerfile 的 `HEALTHCHECK` 不用改——它只看 HTTP 状态码。
+
+**为什么不是"把 docker healthcheck 改成容忍 503"**：那只是把误报藏起来，`/healthz` 仍然是
+错的信号源；下游任何用它的编排/告警/负载均衡都会继续误判。修判据而不是修调用方。
+
+**测试**：`TestHealthz200WhenAllSoftCooled`（软冷却 → 200 + mode=fallback + fallback_accounts=1）、
+`TestHealthz503WhenAllHardCooled`（硬冷却 → 503 + mode=down）；
+原有 `TestHealthz503WhenNoHealthy`（禁用）/`TestHealthz503WhenAllInFlightFull`（全占满）保持 503。

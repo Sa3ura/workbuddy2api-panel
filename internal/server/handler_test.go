@@ -2147,3 +2147,55 @@ func TestChatMixedFailureKeepsNoHealthyAccount(t *testing.T) {
 		t.Errorf("code 不应为 model_unavailable（有非限流类失败混入）：%s", rec.Body)
 	}
 }
+
+// TestHealthz200WhenAllSoftCooled 软冷却（CoolSoft）是"状态残留"而非不可用：
+// 选号末端 pickEarliestExpiryLocked 仍会兜底放行，chat 实际能返回 200。
+// 修复前 /healthz 恒 503 → 容器被标 unhealthy，而同一时刻请求全 200（2026-10-24 实况）。
+func TestHealthz200WhenAllSoftCooled(t *testing.T) {
+	p := testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at", ExpiresAt: 9999999999})
+	p.Cooldown("u1", pool.CoolSoft, time.Minute, "429 rate limit")
+
+	if p.ServableNow() {
+		t.Fatal("前置条件：软冷却期间 ServableNow 应为 false")
+	}
+	h := NewHandler(Config{Pool: p, Upstream: upstream.New()})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d want 200（软冷却仍可兜底受理）；body=%s", rec.Code, rec.Body)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("healthz not json: %v body=%s", err, rec.Body)
+	}
+	if resp["mode"] != "fallback" {
+		t.Errorf("mode=%v want fallback（healthy=0 但兜底可用）", resp["mode"])
+	}
+	if resp["healthy"] != float64(0) {
+		t.Errorf("healthy=%v want 0（口径不变，冷却期不算 healthy）", resp["healthy"])
+	}
+	if resp["fallback_accounts"] != float64(1) {
+		t.Errorf("fallback_accounts=%v want 1", resp["fallback_accounts"])
+	}
+}
+
+// TestHealthz503WhenAllHardCooled 硬冷却（CoolHard：余额耗尽/凭证失效）兜底也排除，
+// 这种才是真的不可服务 → 仍为 503。
+func TestHealthz503WhenAllHardCooled(t *testing.T) {
+	p := testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at", ExpiresAt: 9999999999})
+	p.CooldownUntilTomorrow4AM("u1", "余额不足")
+
+	h := NewHandler(Config{Pool: p, Upstream: upstream.New()})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code=%d want 503（硬冷却兜底也不接）；body=%s", rec.Code, rec.Body)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("healthz not json: %v body=%s", err, rec.Body)
+	}
+	if resp["mode"] != "down" {
+		t.Errorf("mode=%v want down", resp["mode"])
+	}
+}

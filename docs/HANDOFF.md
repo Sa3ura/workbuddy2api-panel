@@ -1,12 +1,12 @@
 # HANDOFF · 给新会话 / 新维护者
 
 > 一页纸交接。**新会话开场只需说一句**：「读 `docs/HANDOFF.md`，继续维护 workbuddy2api-panel」。
-> 最后更新：2026-10-24（维护版 1.13.14）
+> 最后更新：2026-10-24（维护版 1.13.15）
 
 ## 1. 一句话现状
 
 WorkBuddy2API Panel 是 `Sliverkiss/workbuddy2api`（已停更）的维护分支。**已上线生产**，
-3 个 cn 账号全绿，探针/面板/CI/降档预案齐备，当前版本 `1.13.14-panel`。
+3 个 cn 账号全绿，探针/面板/CI/降档预案齐备，当前版本 `1.13.15-panel`。
 
 ## 2. 线上状态
 
@@ -62,6 +62,7 @@ P2（TRIAGE+CHANGELOG）、P6（CONTRIBUTING+release note）未做。
 | 1.13.12 | 去掉 `index.html` 里被 CSP 拦下的内联 `onsubmit`（回车提交会刷新页面、密钥弹窗状态丢失），改为 app.js 的 submit 监听 + 守卫测试 |
 | 1.13.13 | 模型级限流码补 **6000**（原只认 6004）→ 不再把整号冷却成「无可用账号」 |
 | 1.13.14 | 模型级限流耗尽时回 **400 `model_unavailable`** 而不是 503「无可用账号」（带 `!otherFailure` 守卫） |
+| 1.13.15 | `/healthz` 判活三态（healthy/fallback/down）：软冷却期仍回 200，修容器假 unhealthy |
 
 ## 5. 已确认的事实（别再重复调研）
 

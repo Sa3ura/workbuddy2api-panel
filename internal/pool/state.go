@@ -540,8 +540,46 @@ func (p *Pool) countsDetailedForRealm(realm string) (total, healthy, cooling, di
 // 与 CountsDetailed 的 healthy 口径不同：healthy 只看 disabled/until/breakerUntil（状态机权威判定），
 // 不看 inFlight；ServableNow 额外叠加在途维度，与 chat 的真实可达性（Pick 会跳过 inFlightFull 账号）对齐。
 // 专供 /healthz 用，避免"全账号 healthy 但都占满"时探活误报 200 而 chat 返回 503 的口径裂缝。
+//
+// 注意它**不覆盖兜底路径**：软冷却（CoolSoft）期间 healthy=false，但选号末端的
+// pickEarliestExpiryLocked 仍会放行（那是"残留状态"而非"不可用"）。判活要的是
+// "能不能受理"，所以 /healthz 用 ServableNow || FallbackUsable 组合判定。
 func (p *Pool) ServableNow() bool {
 	return p.ServableForRealm("")
+}
+
+// FallbackUsable 报告还有几个账号"走兜底路径也受理请求"——口径与选号末端
+// pickEarliestExpiryLocked 的过滤条件一致：
+//
+//   - 排除 disabled / paused（兜底也不接）
+//   - 排除在途占满（瞬时载荷，不是状态损坏）
+//   - 排除**硬冷却未到期**（CoolHard：余额耗尽 / 凭证失效类，重试必然同样失败）
+//
+// 剩下的都算：healthy 的、软冷却期内的（CoolSoft，429/6000/6004 后的状态残留）、
+// 熔断期的（可能已恢复）。
+//
+// 为什么 /healthz 需要它（2026-10-24 线上实况）：3 个号全处 CoolSoft、reason 是早前
+// 高峰留下的 "429 rate limit"，healthy=0 → /healthz 恒 503 → docker 标 unhealthy；
+// 而同一时刻 13 个请求 13 个 200、doctor 三个号全绿。探活口径跟"能不能受理"脱节，
+// 任何基于容器健康状态的告警/编排都会误报。
+func (p *Pool) FallbackUsable() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	now := time.Now()
+	n := 0
+	for _, e := range p.byUID {
+		if e.disabled || e.paused {
+			continue
+		}
+		if p.inFlightFull(e) {
+			continue
+		}
+		if e.coolKind == CoolHard && !e.until.IsZero() && now.Before(e.until) {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 // ServableForRealm 报告某 realm 是否可服务：存在至少一个该 realm 的 healthy 且未占满在途名额的账号。
