@@ -129,12 +129,34 @@ var softRateMarkers = []string{
 
 var sessionDeadMarkers = []string{"Offline user session not found", "12153"}
 
-// isQueueFullBody 判定渠道级容量满载文案（6021 queue.full.title 家族）。
-// 该形态表明上游推理集群排队队列打满，与具体账号无关；换号在任何时刻都会撞
-// 同一堵墙，正确处置是不罚号不轮转（见 Classify 的 6021 分支）。子串口径但
-// 用完整固定文案（"queue.full"），避免与普通限流文案误撞。
+// isQueueFullBody 判定「渠道级排队」文案（6021 queue.full.title / 6020 queue.waiting.title）。
+// 该形态表明上游推理集群排队队列满载或正在排队，与具体账号无关；换号在任何时刻都会撞
+// 同一堵墙，正确处置是不罚号不轮转（见 Classify 的 ErrUpstreamBusy 分支）。子串口径但
+// 用完整固定文案（"queue.full" / "queue.waiting"），避免与普通限流文案误撞。
 func isQueueFullBody(lower string) bool {
-	return strings.Contains(lower, "queue.full") || strings.Contains(lower, "queue full")
+	for _, m := range []string{"queue.full", "queue full", "queue.waiting", "queue waiting"} {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// reQueueRetryAfter 抓 6020 queue.waiting 响应里的 `"retry_after": 40`（秒）。
+// 只认数字形态；抓不到返回 false，调用方据此不设 Retry-After 头（绝不臆造等待时间）。
+var reQueueRetryAfter = regexp.MustCompile(`"retry_after"\s*:\s*(\d+)`)
+
+// ParseQueueRetryAfter 从排队响应里解析上游建议的重试等待秒数。
+func ParseQueueRetryAfter(body string) (int, bool) {
+	m := reQueueRetryAfter.FindStringSubmatch(body)
+	if len(m) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // accountFaultMarkers 账号级授权/配额故障关键词（大小写不敏感子串匹配）。
@@ -626,7 +648,9 @@ func Classify(status int, body string) ErrKind {
 	// 冷却（2026-10-15 实案），且换号白撞放大请求量。429 + 结构化 code 为主判据
 	// （与 14018 同口径）；"queue.full" 固定文案单列为外卡——该文案是上游 i18n
 	// key 原文，语义唯一，非 429 状态码出现同样归本类（防上游换状态码）。
-	if (status == http.StatusTooManyRequests && hasBusinessCode(body, "6021")) || isQueueFullBody(lower) {
+	// 6020 是同一族：queue.waiting.title（排队中，带 queue_position / retry_after）。
+	// 它同样与账号无关（换号照样排队），且上游明确给了 retry_after 秒数。
+	if (status == http.StatusTooManyRequests && (hasBusinessCode(body, "6021") || hasBusinessCode(body, "6020"))) || isQueueFullBody(lower) {
 		return ErrUpstreamBusy
 	}
 	// status==429 先于 hardMarkers：限流响应 body 高频携带 "quota exceeded"/

@@ -37,6 +37,12 @@ func TestClassify(t *testing.T) {
 		// 6000 形态（2026-10-24 线上实测）：同样归软限流，进而在 applyErrorPolicy 里
 		// 走"只锁这个模型"的分支，而不是把整号冷却（那样三个号各撞一次池子就空了）。
 		{429, `{"code":6000,"msg":"您的使用量已超出频率限制，将在 2026-10-24 17:00:49 UTC+8 重置，您也可以切换其他模型继续使用。"}`, ErrSoftRate},
+		// 6020 queue.waiting（2026-10-26 线上）：渠道排队，不是账号/模型问题。
+		// 必须归 ErrUpstreamBusy（不罚号不轮转 + 503 + Retry-After），
+		// 否则按 429 软限流处理会把三个号逐个冷却成空池。
+		{429, `{"code":6020,"msg":"queue.waiting.title","requestId":"21f2e2fb6b74e53c6a91a189dda3a041","data":{"queue_position":1335,"queue_size":"999+","retry_after":40,"estimated_wait":6675,"client_user_type":"free"}}`, ErrUpstreamBusy},
+		{502, `{"code":6020,"msg":"queue.waiting.title","data":{"retry_after":40}}`, ErrUpstreamBusy},
+		{503, `queue.waiting.title`, ErrUpstreamBusy},
 		{400, `{"code":6000,"msg":"x"}`, ErrSoftRate},
 		{400, `您的使用量已超出频率限制`, ErrSoftRate}, // 无 code 时的中文文案兜底
 		// 限流文案（issue #28）：状态码不是 429 时也必须识别为软限流，
@@ -717,5 +723,29 @@ func TestClassifyRealChannelRefusedBody(t *testing.T) {
 	}
 	if got := Classify(403, `{"code":"`+code+`","msg":"request illegal"}`); got != ErrChannelRefused {
 		t.Fatalf("Classify(real 11-128, 403)=%v want ErrChannelRefused", got)
+	}
+}
+
+// TestParseQueueRetryAfter 6020 排队响应里的 retry_after → 标准 Retry-After 头。
+func TestParseQueueRetryAfter(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+		ok   bool
+	}{
+		{"线上实案", `{"code":6020,"msg":"queue.waiting.title","data":{"queue_position":1335,"queue_size":"999+","retry_after":40,"estimated_wait":6675}}`, 40, true},
+		{"紧凑无空格", `{"data":{"retry_after":7}}`, 7, true},
+		{"缺字段", `{"code":6020,"msg":"queue.waiting.title"}`, 0, false},
+		{"零值不采信", `{"data":{"retry_after":0}}`, 0, false},
+		{"空 body", ``, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := ParseQueueRetryAfter(c.body)
+			if ok != c.ok || got != c.want {
+				t.Errorf("ParseQueueRetryAfter(%q)=(%d,%v) want (%d,%v)", c.body, got, ok, c.want, c.ok)
+			}
+		})
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"sync"
@@ -1063,18 +1064,20 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 				st.outcome = reqlog.OutcomeHTTPError
 				return
 			}
-			// 6021「queue.full.title」渠道级容量满载：**不罚号不轮转**，立即透传
-			// 上游原文回客户端（503 + upstream_busy）。上游集群排队打满时换任何
-			// 账号都撞同一堵墙——按限流处置会逐号软冷却，实测 2 秒绞杀整池健康号
-			// （2026-10-15 实案），且换号白撞把无效请求放大 MaxRotate 倍。客户端
-			// 按 SDK 退避重试即可；等待窗口过去渠道恢复即成功。
+			// 6021「queue.full.title」/ 6020「queue.waiting.title」：渠道级排队信号，
+			// **不罚号不轮转**，立即透传上游原文回客户端（503 + upstream_busy）。
+			// 上游集群排队打满时换任何账号都撞同一堵墙——按限流处置会逐号软冷却，
+			// 实测 2 秒绞杀整池健康号（2026-10-15 实案），且换号白撞把无效请求放大
+			// MaxRotate 倍。6020 还带 `retry_after`（秒），直接翻成标准 Retry-After 头，
+			// 客户端（OpenAI SDK）据此退避即可。
 			if kind == upstream.ErrUpstreamBusy {
 				h.applyErrorPolicy(acct.UID, kind, string(respBody), bareModel, uerr)
 				fail(acct.UID)
 				msg := string(respBody)
 				if strings.TrimSpace(msg) == "" {
-					msg = "upstream capacity is full (queue.full); retry after a short wait"
+					msg = "upstream capacity is full or queued; retry after a short wait"
 				}
+				setQueueRetryAfter(w, string(respBody))
 				writeOpenAIErrorHint(w, http.StatusServiceUnavailable, "upstream_busy", msg,
 					h.hintOf(upstream.ErrUpstreamBusy, string(respBody), bareModel, reqHasImage, uerr))
 				st.status = http.StatusServiceUnavailable
@@ -1294,7 +1297,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			// fail-fast 拦截）。503 + 可重试语义——上游原文（下方统一透传）
 			// 含 requestId，客户端按 SDK 退避重试即可。
 			code = "upstream_busy"
-			msg = "upstream capacity is full (queue.full); retry after a short wait"
+			msg = "upstream capacity is full or queued; retry after a short wait"
 		case upstream.ErrModelBlocked:
 			// 11102「该后端无此模型」：上游原文（下方统一透传）已经写清了原因，但
 			// code 此前停在默认的 no_healthy_account —— 那是"服务端过载"的语义，
@@ -1347,9 +1350,22 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			hint += "; upstream: " + s
 		}
 	}
+	// 渠道排队（6020 queue.waiting）在 body 里给了 `retry_after`（秒），翻成标准
+	// Retry-After 头：OpenAI SDK 会据此退避，而不是立刻重撞队列。
+	if code == "upstream_busy" {
+		setQueueRetryAfter(w, msg)
+	}
 	writeOpenAIErrorHint(w, status, code, msg, hint)
 	st.status = status
 	st.outcome = reqlog.OutcomeHTTPError
+}
+
+// setQueueRetryAfter 把上游排队响应里的 `"retry_after": N`（秒）翻成 Retry-After 头。
+// 解析不到就不设——绝不臆造等待时间（上游没给时间时让客户端按自己的退避曲线走）。
+func setQueueRetryAfter(w http.ResponseWriter, body string) {
+	if secs, ok := upstream.ParseQueueRetryAfter(body); ok {
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
+	}
 }
 
 // tokensPerSecond 计算吐字速率（token/s），返回 (速率, 是否有意义)。

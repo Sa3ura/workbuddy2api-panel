@@ -2199,3 +2199,38 @@ func TestHealthz503WhenAllHardCooled(t *testing.T) {
 		t.Errorf("mode=%v want down", resp["mode"])
 	}
 }
+
+// TestChatQueueWaitingBusy 6020 queue.waiting：渠道排队 ≠ 账号/模型问题。
+// 必须 503 + upstream_busy + Retry-After（上游给的 40 秒），且**不得**冷却账号。
+func TestChatQueueWaitingBusy(t *testing.T) {
+	const body = `{"code":6020,"msg":"queue.waiting.title","requestId":"21f2e2fb6b74e53c6a91a189dda3a041","data":{"queue_position":1335,"queue_size":"999+","retry_after":40,"estimated_wait":6675,"client_user_type":"free"}}`
+	up := newFakeUpstream(t, func(authz string) (int, string, bool) { return 429, body, false })
+	p := testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at", ExpiresAt: 9999999999})
+	h := NewHandler(Config{Pool: p, Upstream: up, SoftCooldown: time.Minute})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"model":"glm-5.2","messages":[]}`)))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want 503；body=%s", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "40" {
+		t.Errorf("Retry-After=%q want \"40\"（上游 data.retry_after）", got)
+	}
+	var env struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("bad json: %v (%s)", err, rec.Body)
+	}
+	if env.Error.Code != "upstream_busy" {
+		t.Errorf("code=%q want upstream_busy (body=%s)", env.Error.Code, rec.Body)
+	}
+	// 排队不是账号问题：不得进冷却。
+	if st, _ := p.Status("u1"); st.Cooling {
+		t.Errorf("账号不应被冷却：%+v", st)
+	}
+}

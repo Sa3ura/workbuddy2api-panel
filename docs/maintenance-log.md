@@ -490,3 +490,31 @@ WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重�
 **测试**：`TestHealthz200WhenAllSoftCooled`（软冷却 → 200 + mode=fallback + fallback_accounts=1）、
 `TestHealthz503WhenAllHardCooled`（硬冷却 → 503 + mode=down）；
 原有 `TestHealthz503WhenNoHealthy`（禁用）/`TestHealthz503WhenAllInFlightFull`（全占满）保持 503。
+
+## 1.13.16：6020 queue.waiting 归「渠道排队」，别再当限流冷却账号（2026-10-26）
+
+**症状**：客户端拿到
+`429 {"code":"rate_limit_exceeded", message:{"code":6020,"msg":"queue.waiting.title","data":{"queue_position":1335,"queue_size":"999+","retry_after":40,"estimated_wait":6675,"client_user_type":"free"}}}`
+随后三个号被逐个冷却 → 又出现「无可用账号」。
+
+**根因**：`Classify` 只把 **6021**（queue.full）认成渠道级满载；**6020**（queue.waiting）
+落到 `status==429` 分支 → `ErrSoftRate` → `applyErrorPolicy` 走**账号级** `CooldownSoftRate`。
+排队是渠道集群行为，换任何账号都在同一队列里，冷却账号既不解决问题、还把一个健康号踢出池子。
+
+**修法**：
+- `isQueueFullBody` 增加 `queue.waiting` / `queue waiting` 文案；
+- `Classify` 的渠道级分支补 `hasBusinessCode(body,"6020")`（429 判定前，与 6021 同层）；
+- 新增 `ParseQueueRetryAfter(body)`：抓 `"retry_after": N`（秒）；
+- handler 在两处 `ErrUpstreamBusy` 出口调 `setQueueRetryAfter`，把上游建议的等待时间翻成
+  标准 **`Retry-After`** 头（OpenAI SDK 据此退避，而不是立刻重撞队列）。
+- 解析不到就**不设**头——绝不臆造等待时间。
+
+**行为对照**：
+
+| 响应 | 修前 | 修后 |
+|---|---|---|
+| 429 + 6020 queue.waiting | `ErrSoftRate` → 账号冷却 + 429 | `ErrUpstreamBusy` → 503 + `Retry-After: 40`，**不动账号** |
+| 429 + 6021 queue.full | `ErrUpstreamBusy` → 503 | 同（文案改为「full or queued」） |
+
+**测试**：`TestClassify` +3 例（429+6020、502+6020、裸文案）、`TestParseQueueRetryAfter` 5 例、
+`TestChatQueueWaitingBusy`（断言 503 / upstream_busy / `Retry-After: 40` / **账号未被冷却**）。
