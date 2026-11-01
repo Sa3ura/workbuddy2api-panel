@@ -518,3 +518,25 @@ WorkBuddy 变成 SaaS"，即本次的目的。回滚只需一个配置键 + 重�
 
 **测试**：`TestClassify` +3 例（429+6020、502+6020、裸文案）、`TestParseQueueRetryAfter` 5 例、
 `TestChatQueueWaitingBusy`（断言 503 / upstream_busy / `Retry-After: 40` / **账号未被冷却**）。
+
+## 1.13.17：版本段跟上 5.9.3 / CLI 2.165.0，`X-Agent-Runtime` 结案并补进 chat（2026-11-01）
+
+**触发**：用户重装 WorkBuddy（5.8.3 → **5.9.3**），同时有账号被判 **11140**（账号级限制）。
+
+**三次复核（源码级，样本 5.9.3 + 内置 CLI 2.165.0）**：
+
+| 项 | 结论 |
+|---|---|
+| 桌面 appVersion | `WorkBuddy.exe` `ProductVersion = 5.9.3`（注册表 DisplayVersion 同为 5.9.3） |
+| 内置 CLI 版本 | **2.165.0**，且 `package.json` 取值路径变了：**顶层 `version` 即真值**，`publishConfig` 只剩 `access`/`name`（`customPackage.version` 已移除） |
+| CLI 包名 | `@genie/agent-cli`，`publishConfig.name` 仍指 `@tencent-ai/codebuddy-code` |
+| `X-Agent-Runtime` | **确认存在**：常量 `AGENT_RUNTIME="X-Agent-Runtime"`、枚举 `["local-agent","cloud-agent","agent-agent"]`；`normalizeAgentRuntime` 对空值/枚举外值返回字面量 `"other"`；对话路径 `buildConversationHeaders` 同样下发 |
+
+**修法**：
+- `defaultClientVersion` 5.8.3 → **5.9.3**，`defaultCliVersion` 2.161.0 → **2.165.0**（纯配置亦可覆盖：`upstream.client_version` / `cli_version`）。
+- `X-Agent-Runtime` 值**不改**：`other` 就是官方兜底值（删掉反而偏离），只把 chat 路径补上（官方对话也发），值用常量 `agentRuntimeFallback` 标注来源。
+- doctor 头族测试把 `X-Agent-Runtime` 加进 chat 必备头清单，防退化。
+
+**UNVERIFIED #18 结案**：此前两轮本地复核（2.156.0 / 2.161.0）零命中是**版本落后**所致，不是"官方没有"。
+
+**注意（别混为一谈）**：11140 是**账号级风控处置**，改版本段/UA 不能解封；它只能降低"下一个号被判"的概率。11140 的正确处置仍是 RUNBOOK §5：停用该号 ≥24h + 降档。

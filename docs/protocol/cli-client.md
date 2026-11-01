@@ -2,7 +2,7 @@
 
 > **档案状态**：🟢 已校准（**源码级 A**：客户端包逐字面量取证）
 > **最后核对**：2026-10-22 · **核对方式**：只读扫描本机客户端包（`app.asar` + `app.asar.unpacked/cli/dist`），**不发请求、不改安装目录**
-> **样本**：WorkBuddy Desktop `5.8.3`（Electron）+ 其内置 `@tencent-ai/codebuddy-code` `2.161.0`
+> **样本**：WorkBuddy Desktop `5.9.3`（Electron，2026-11-01 重装复核）+ 其内置 CLI `2.165.0`（包名已变为 `@genie/agent-cli`，`publishConfig.name` 仍指向 `@tencent-ai/codebuddy-code`）
 > （首轮取证在 `5.7.7 / 2.156.0` 上完成，2026-10-22 桌面端更新后**全表复核一遍，结论未变**）
 > **影响级别**：L0（头族退化 = 全量被拒，最先炸的就是这里）
 
@@ -26,7 +26,7 @@
 |---|---|
 | 桌面端 | `D:\WorkBuddy\`（`WorkBuddy.exe` + `resources\app.asar` 203 MB） |
 | CLI | `D:\WorkBuddy\resources\app.asar.unpacked\cli\`（345 个文件） |
-| CLI 包名 / 真实版本 | `@tencent-ai/codebuddy-code` **2.161.0**（`package.json` 的 `publishConfig.customPackage.version`；顶层 `version` 字段是 `0.0.0`，不可用） |
+| CLI 包名 / 真实版本 | `@genie/agent-cli` **2.165.0**（5.9.3 起顶层 `version` 即真值；`publishConfig.customPackage.version` 已消失，只剩 `access`/`name`） |
 | 包内代号 | `package.json` 的 `name` 是 `@genie/agent-cli` |
 | CLI 入口 | `bin/codebuddy` / `bin/cbc`（bin 名：`codebuddy`、`codebuddy-code`、`cbc`） |
 | 主要证据文件 | `cli\dist\codebuddy-headless.js`（11.9 MB，未混淆，可直读）、`cli\dist\codebuddy-lite-wb.mjs`（8.6 MB，同源另一构建） |
@@ -45,7 +45,7 @@
 | `X-Custom-Channel-Id` | 1 | **0** | 桌面独有 |
 | `X-Machine-ID` | **0** | **0** | 两个客户端都没有 |
 | `X-Session-ID` | 0 | 1（仅常量，从不赋值） | 两个客户端实际都没有 |
-| `X-Agent-Runtime` | **0** | **0** | ⚠️ **版本待核**（见 §11-0：本地 2.156.0 与 2.161.0 两次都零命中，但本仓库 `search.go` 注释称「官方 2.166.0 起必发」；npm 最新已是 2.172.1） |
+| `X-Agent-Runtime` | **0** | **✅ 已确认（2.165.0）** | 官方常量 `AGENT_RUNTIME="X-Agent-Runtime"`、枚举 `AGENT_RUNTIMES=["local-agent","cloud-agent","agent-agent"]`；`normalizeAgentRuntime` 对不在枚举内的值/空值一律返回字面量 **`"other"`**。即 `other` 是**官方兜底值**，不是异常特征 |
 | `X-Product` | 10 | 2 | 都发，**默认值相同**（§5） |
 | `X-Private-Data` | 2 | 1 | 都发，**取值语义不同**（§6） |
 | `X-Agent-Type` | 0 | 1 | CLI 有、我们无 |
@@ -211,7 +211,7 @@ for h in ["X-Session-ID", "X-Agent-Type", "X-Private-Data"]:
 ## 11. 局限与未验证项
 
 **0. 版本代差（最重要的一条，先看这个）。** 本档案两次取证都在**桌面端内置 CLI**上做
-（首轮 `2.156.0`，复核 `2.161.0`），而 npm 上 `@tencent-ai/codebuddy-code` 最新已到 **`2.172.1`**
+（首轮 `2.156.0` → 复核 `2.161.0` → 三次复核 `2.165.0`），而 npm 上该包最新仍标到 2.17x
 （2026-10-22 查 registry）。本仓库 `internal/upstream/search.go` 的注释还写着「`X-Agent-Runtime`：
 官方 **2.166.0** 起必发」——即**官方 CLI 已经越过我们手上的版本，期间新增过头**。
 

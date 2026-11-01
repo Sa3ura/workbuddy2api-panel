@@ -81,7 +81,7 @@ type SearchOutcome struct {
 //   - Content-Type：官方搜索为 application/json;charset=UTF-8
 //     （CommonHeaders 的 chat 形态是不带 charset 的 application/json）
 //   - X-Agent-Intent：官方固定 "craft"（搜索请求不携带会话 mode）
-//   - X-Agent-Runtime：官方 2.166.0 起必发，无 runtime 时回落 "other"
+//   - X-Agent-Runtime：官方 2.165.0 已确认（AGENT_RUNTIME 常量 + normalizeAgentRuntime 兜底 other），无 runtime 时回落 "other"
 //
 // 为什么整体复用 ChatHeaders 而不是照抄官方 WebSearchTool 的精简头清单：
 // 官方 CLI 的搜索头就是它**同一个客户端**的通用头（CLI 的 chat 与搜索共用

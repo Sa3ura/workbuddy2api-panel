@@ -20,14 +20,14 @@ const (
 	// 取值路径（版本号会腐烂，别抄死）：`(Get-Item <安装目录>\WorkBuddy.exe).VersionInfo.ProductVersion`。
 	// 2026-10-22 复核为 5.8.3（同日早些时候是 5.7.7，用户更新桌面端后变化）。
 	// config upstream.client_version 可覆盖（空 = 内置默认）。
-	defaultClientVersion = "5.8.3"
+	defaultClientVersion = "5.9.3"
 	// defaultCliVersion 出站 UA 中 `CLI/<ver>` 段版本。对齐桌面端内置 CLI，**取包内真实版本**。
 	//
 	// 取值路径：`<安装目录>\resources\app.asar.unpacked\cli\package.json` 的
 	// `publishConfig.customPackage.version`（**不是**顶层的 `version`，那个恒为 0.0.0）。
 	// 2026-10-22 复核为 2.161.0（同期 npm 最新 2.172.1，见 docs/protocol/cli-client.md §11-0）。
 	// config upstream.cli_version 可覆盖（空 = 内置默认）。
-	defaultCliVersion = "2.161.0"
+	defaultCliVersion = "2.165.0"
 
 	// defaultProduct 出站 X-Product 默认值。
 	//
@@ -266,6 +266,11 @@ func (c *Client) ChatHeaders(req *http.Request, a *auth.Auth, clientIP string, m
 	}
 	// 用量归属头：默认伪造 WorkBuddy 桌面端指纹（client_name="SaaS" 还原旧行为）。
 	c.injectAttribution(req)
+	// X-Agent-Runtime：官方 buildConversationHeaders 在**对话**路径也会发它，
+	// 取值由 resolveAgentRuntime 归一，无 runtime 信息时兜底就是字面量 "other"
+	// （5.9.3 / CLI 2.165.0 源码级证据：normalizeAgentRuntime 里 AGENT_RUNTIMES
+	// 不含该值则 return "other"）。网关无 agent 语义，发官方兜底值即最贴近。
+	req.Header.Set("X-Agent-Runtime", agentRuntimeFallback)
 	// 客户端 IP 透传（仅 PassthroughIP=true 且本次请求带 IP）。
 	c.injectClientIP(req, clientIP)
 	// 设备风控头：auth 每号 > config 全局 > 文件兜底；空则不注入。
@@ -472,3 +477,6 @@ func (c *Client) RefreshHeaders(req *http.Request, a *auth.Auth) {
 	// X-Auth-Refresh-Source 对齐官方客户端 refresh 渠道标识 "plugin"（D3）。
 	req.Header.Set("X-Auth-Refresh-Source", "plugin")
 }
+
+// agentRuntimeFallback 是官方对「无 runtime 信息」的兜底取值（源码级，勿改）。
+const agentRuntimeFallback = "other"

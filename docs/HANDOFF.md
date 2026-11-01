@@ -1,12 +1,12 @@
 # HANDOFF · 给新会话 / 新维护者
 
 > 一页纸交接。**新会话开场只需说一句**：「读 `docs/HANDOFF.md`，继续维护 workbuddy2api-panel」。
-> 最后更新：2026-10-26（维护版 1.13.16）
+> 最后更新：2026-11-01（维护版 1.13.17）
 
 ## 1. 一句话现状
 
 WorkBuddy2API Panel 是 `Sliverkiss/workbuddy2api`（已停更）的维护分支。**已上线生产**，
-3 个 cn 账号全绿，探针/面板/CI/降档预案齐备，当前版本 `1.13.16-panel`。
+3 个 cn 账号全绿，探针/面板/CI/降档预案齐备，当前版本 `1.13.17-panel`。
 
 ## 2. 线上状态
 
@@ -64,6 +64,7 @@ P2（TRIAGE+CHANGELOG）、P6（CONTRIBUTING+release note）未做。
 | 1.13.14 | 模型级限流耗尽时回 **400 `model_unavailable`** 而不是 503「无可用账号」（带 `!otherFailure` 守卫） |
 | 1.13.15 | `/healthz` 判活三态（healthy/fallback/down）：软冷却期仍回 200，修容器假 unhealthy |
 | 1.13.16 | **6020 queue.waiting** 归渠道排队（不再当限流冷却账号）+ 透传 `Retry-After` |
+| 1.13.17 | 版本段 → **5.9.3 / CLI 2.165.0**（三次复核）；`X-Agent-Runtime` 结案（`other` 是官方兜底值）并补进 chat |
 
 ## 5. 已确认的事实（别再重复调研）
 

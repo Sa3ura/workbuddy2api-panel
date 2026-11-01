@@ -84,7 +84,7 @@ func TestDumpHeaders_HeaderFamilies(t *testing.T) {
 
 	require("chat（对话 / 流式）",
 		"Authorization", "X-Codebuddy-Request", "X-Machine-Id", "X-Session-Id",
-		"X-Agent-Purpose", "X-Ide-Name", "X-Ide-Version", "X-Product", "X-Domain")
+		"X-Agent-Purpose", "X-Agent-Runtime", "X-Ide-Name", "X-Ide-Version", "X-Product", "X-Domain")
 	require("billing（签到 / 余额 / 补偿）",
 		"Authorization", "X-Codebuddy-Request", "X-User-Id")
 	require("refresh（token 刷新）",
