@@ -394,13 +394,41 @@ func probeTasks(ctx context.Context, c *Client, a *auth.Auth) probeOutcome {
 	if len(codes) == 0 {
 		return yellowf([]string{"tasks"}, "任务列表为空（上游可能已停发或改口径）")
 	}
-	missing, ratio := intersectionRatio(probeKnownTasks, codes)
-	if ratio < 0.6 {
-		return yellowf(missing, "任务码 %d 个，老任务码命中率仅 %.0f%%", len(codes), ratio*100)
+	// 分母是**本次返回的码**，不是全局老码表（1.13.18 修正）。
+	//
+	// 为什么改：任务码是**账号成长阶段相关**的——新号只解锁 4 个任务，老号 17 个。
+	// 旧口径拿「10 个老码里出现了几个」当命中率，只要账号在早期阶段就必然低命中 → 恒黄，
+	// 2026-11-24 线上实况：某账号 4 个任务码只命中 2 个 → 20% → 黄+8 条漂移，
+	// 但探针本身完全正常，纯噪声。判断「口径是否变了」要问的是
+	// 「我们返回的这批码还认不认识」，而不是「老码表还全不全」。
+	missing, _ := intersectionRatio(probeKnownTasks, codes)
+	known := 0
+	unknown := make([]string, 0, len(codes))
+	haveKnown := make(map[string]struct{}, len(probeKnownTasks))
+	for _, k := range probeKnownTasks {
+		haveKnown[strings.ToLower(strings.TrimSpace(k))] = struct{}{}
 	}
-	// 命中率一并透出：它是「口径漂移」的量化指标，也是 UNVERIFIED #3 的观测入口。
-	// 命中率不下降就不必理会新增任务码（上游新增是正常演进）。
-	return greenf("%d 个任务码（老码命中 %.0f%%，对照 %d 个）", len(codes), ratio*100, len(probeKnownTasks))
+	for _, code := range codes {
+		if _, ok := haveKnown[strings.ToLower(strings.TrimSpace(code))]; ok {
+			known++
+			continue
+		}
+		unknown = append(unknown, code)
+	}
+	sort.Strings(unknown)
+	ratio := float64(known) / float64(len(codes))
+	// 只在「多数码都不认识」时判黄：那才是改名/换域之类的口径变化。
+	// 少数新码是正常演进——它们进 drift 列表，供协议档案补录，但不算异常。
+	if ratio < 0.5 {
+		return yellowf(unknown, "任务码 %d 个，其中 %d 个不认识（认识率 %.0f%%）；老码在册 %d/%d",
+			len(codes), len(unknown), ratio*100, len(probeKnownTasks)-len(missing), len(probeKnownTasks))
+	}
+	return probeOutcome{
+		status: ProbeGreen,
+		detail: fmt.Sprintf("任务码 %d 个（认识 %d，%.0f%%）· 老码在册 %d/%d",
+			len(codes), known, ratio*100, len(probeKnownTasks)-len(missing), len(probeKnownTasks)),
+		drift: unknown,
+	}
 }
 
 // probeCompensation 补偿状态：active=false 是「当前无活动」的正常 200，不算异常。

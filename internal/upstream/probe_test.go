@@ -227,3 +227,41 @@ func TestRunHealthProbes_WorstStatusWins(t *testing.T) {
 		t.Error("tasks 探针应为 yellow")
 	}
 }
+
+// TestProbeTasks_EarlyStageAccountStaysGreen 回归 2026-11-24 线上实况：
+// 账号处于成长早期，只解锁 4 个任务码（first_buddy / Library_read + 两个新码），
+// 旧口径按「10 个老码出现了几个」算 → 20% → 恒黄 + 8 条漂移，纯噪声。
+// 新口径按「本次返回的码认不认识」算：2/4 = 50% → 绿，未知名进 drift 供补录。
+func TestProbeTasks_EarlyStageAccountStaysGreen(t *testing.T) {
+	c := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(okEnvelope(`{"tasks":[
+			{"task_code":"first_buddy"},{"task_code":"Library_read"},
+			{"task_code":"brand_new_a"},{"task_code":"brand_new_b"}
+		]}`)))
+	})
+
+	out := probeTasks(context.Background(), c, probeTestAuth("u1", false))
+	if out.status != ProbeGreen {
+		t.Fatalf("早期阶段账号应判绿，got %s (%s)", out.status, out.detail)
+	}
+	if len(out.drift) != 2 {
+		t.Fatalf("drift 应列出 2 个不认识的码（供协议档案补录），got %v", out.drift)
+	}
+	if out.drift[0] != "brand_new_a" || out.drift[1] != "brand_new_b" {
+		t.Errorf("drift=%v want [brand_new_a brand_new_b]（已排序）", out.drift)
+	}
+}
+
+// TestProbeTasks_YellowWhenMajorityUnknown 多数码都不认识（改名/换域）→ 黄。
+func TestProbeTasks_YellowWhenMajorityUnknown(t *testing.T) {
+	c := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(okEnvelope(`{"tasks":[
+			{"task_code":"first_buddy"},{"task_code":"x1"},{"task_code":"x2"}
+		]}`)))
+	})
+
+	out := probeTasks(context.Background(), c, probeTestAuth("u1", false))
+	if out.status != ProbeYellow {
+		t.Fatalf("1/3 认识（33%% < 50%%）应判黄，got %s (%s)", out.status, out.detail)
+	}
+}
