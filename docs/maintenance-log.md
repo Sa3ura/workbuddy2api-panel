@@ -569,3 +569,22 @@ playbook_prompt / skill_1 / template_5），但探针本身完全正常。
 
 **测试**：`TestProbeTasks_EarlyStageAccountStaysGreen`（4 码 2 认 → 绿 + drift 排序断言）、
 `TestProbeTasks_YellowWhenMajorityUnknown`（1/3 认识 → 黄）；原有三条不变。
+
+## 1.13.19：补录两个实测任务码，`tasks` 探针 drift 归空（2026-11-24）
+
+1.13.18 把分母改正后，该账号的 drift 只剩两条——正是那两个**没入档的新码**：
+
+```
+任务码: RichMeow_Chat, wb_wechat_oa_subscribe_task
+```
+
+- `RichMeow_Chat`：富猫玩法入口（个人号成长体系）
+- `wb_wechat_oa_subscribe_task`：公众号订阅任务
+
+两者补进 `probeKnownTasks`（`docs/protocol/growth-report.md` 记语义），该账号随即 4/4 认识、
+drift 归空、状态转绿。这也验证了 1.13.18 的设计意图：**drift 只在真的出现新码时非空**，
+它就是「该补档了」的待办清单，不再是噪声。
+
+**测试**：`TestProbeTasks_RealEarlyStageSetFullyKnown` 钉住这套实测四码集合
+（`first_buddy` / `Library_read` / `RichMeow_Chat` / `wb_wechat_oa_subscribe_task`）——
+上游哪天改名，这条测试会先红。

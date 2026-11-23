@@ -137,6 +137,11 @@ var probeKnownTasks = []string{
 	"Library_read",
 	"playbook_prompt",
 	"Hp_Appearance",
+	// 2026-11-24 实测（早期账号只解锁 4 个任务时出现的两个码）：
+	// 前者是「富猫」玩法入口，后者是公众号订阅任务——都属于个人号成长体系，
+	// 补进老码表后该账号的 tasks 探针从「2/4 认识」升到「4/4 认识」。
+	"RichMeow_Chat",
+	"wb_wechat_oa_subscribe_task",
 }
 
 // probeKnownModels 长期存在的模型名，用于模型目录漂移判定（同 probeKnownTasks 逻辑）。

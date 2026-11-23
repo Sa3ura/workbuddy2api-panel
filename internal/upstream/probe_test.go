@@ -265,3 +265,26 @@ func TestProbeTasks_YellowWhenMajorityUnknown(t *testing.T) {
 		t.Fatalf("1/3 认识（33%% < 50%%）应判黄，got %s (%s)", out.status, out.detail)
 	}
 }
+
+// TestProbeTasks_RealEarlyStageSetFullyKnown 钉住 2026-11-24 实测的早期账号任务码集合：
+// first_buddy / Library_read / RichMeow_Chat / wb_wechat_oa_subscribe_task。
+// 四个码补进老码表后应 4/4 认识、drift 为空——若上游哪天改名，这条会先红。
+func TestProbeTasks_RealEarlyStageSetFullyKnown(t *testing.T) {
+	c := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(okEnvelope(`{"tasks":[
+			{"task_code":"first_buddy"},{"task_code":"Library_read"},
+			{"task_code":"RichMeow_Chat"},{"task_code":"wb_wechat_oa_subscribe_task"}
+		]}`)))
+	})
+
+	out := probeTasks(context.Background(), c, probeTestAuth("u1", false))
+	if out.status != ProbeGreen {
+		t.Fatalf("want green, got %s (%s)", out.status, out.detail)
+	}
+	if len(out.drift) != 0 {
+		t.Errorf("四个码都已入档，drift 应为空，got %v", out.drift)
+	}
+	if !strings.Contains(out.detail, "认识 4") {
+		t.Errorf("detail=%q 应表明 4 个码全部认识", out.detail)
+	}
+}
